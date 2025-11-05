@@ -1,6 +1,6 @@
 # Telephone
 
-**A lightweight WebSocket-based reverse proxy sidecar for the Vera-Stack**
+**A lightweight WebSocket-based reverse proxy sidecar for the Vera Reverse Proxy**
 
 [![Go Version](https://img.shields.io/badge/go-1.23-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -16,7 +16,6 @@ Telephone is a sidecar process that maintains a persistent WebSocket connection 
 - **WebSocket Tunnel** - Persistent connection with automatic reconnection
 - **Phoenix Channels Protocol** - Full implementation of Elixir Phoenix channels
 - **JWT Authentication** - Token-based auth with automatic refresh
-- **Health Checks** - Kubernetes-ready readiness and liveness probes
 - **Graceful Shutdown** - Waits for active requests before stopping
 - **Chunked Responses** - Automatic chunking for large responses (>1MB)
 - **Request Timeout** - Configurable per-request timeouts
@@ -58,7 +57,6 @@ SECRET_KEY_BASE=your_64_character_hex_secret_key
 PLUGBOARD_URL=ws://localhost:4000/telephone/websocket
 BACKEND_HOST=localhost
 BACKEND_PORT=8080
-HEALTH_PORT=9090
 CONNECT_TIMEOUT=10s
 REQUEST_TIMEOUT=30s
 TOKEN_DB_PATH=./telephone.db
@@ -82,9 +80,6 @@ openssl rand -hex 32
 ```bash
 # Make a request through Plugboard
 curl http://localhost:4000/call/YOUR_PATH/
-
-# Check health
-curl http://localhost:9090/health
 ```
 
 ---
@@ -156,36 +151,6 @@ TOKEN_DB_PATH=/var/lib/telephone/tokens.db
 
 ---
 
-## Health Checks
-
-Telephone exposes health check endpoints on port 9090 (configurable):
-
-### `/health` - Detailed Health Status
-
-```bash
-curl http://localhost:9090/health
-```
-
-```json
-{
-  "status": "healthy",
-  "connected": true,
-  "path_id": "8b0ebb53-cf9d-4ee4-9dcd-bc135d2c6e95",
-  "token_expiry": "2025-11-05T12:19:18+08:00",
-  "version": "5c6dcdc"
-}
-```
-
-### `/ready` - Readiness Probe
-
-Returns `200 OK` if connected and ready to accept traffic.
-
-### `/live` - Liveness Probe
-
-Returns `200 OK` if the process is alive.
-
----
-
 ## Docker
 
 ### Build Image
@@ -201,7 +166,6 @@ docker run --rm -it \
   -e token=$TELEPHONE_TOKEN \
   -e BACKEND_HOST=your-app \
   -e BACKEND_PORT=8080 \
-  -p 9090:9090 \
   verastack/telephone:latest
 ```
 
@@ -215,22 +179,15 @@ services:
     image: your-app:latest
     ports:
       - "8080:8080"
-  
+
   telephone:
     image: verastack/telephone:latest
     environment:
       - token=${TELEPHONE_TOKEN}
       - BACKEND_HOST=app
       - BACKEND_PORT=8080
-    ports:
-      - "9090:9090"
     depends_on:
       - app
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "http://localhost:9090/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
 ```
 
 ---
@@ -246,7 +203,6 @@ services:
 | `PLUGBOARD_URL` | WebSocket URL to Plugboard | `ws://localhost:4000/telephone/websocket` | ❌ |
 | `BACKEND_HOST` | Backend hostname | `localhost` | ❌ |
 | `BACKEND_PORT` | Backend port | `8080` | ❌ |
-| `HEALTH_PORT` | Health check server port | `9090` | ❌ |
 | `CONNECT_TIMEOUT` | Connection timeout | `10s` | ❌ |
 | `REQUEST_TIMEOUT` | Request timeout | `30s` | ❌ |
 | `TOKEN_DB_PATH` | Path to SQLite token database | `./telephone.db` | ❌ |
@@ -285,7 +241,6 @@ services:
 - Request correlation with UUIDs
 
 ### ✅ Monitoring
-- Health check endpoints
 - Connection status reporting
 - Token expiry tracking
 - Structured logging
@@ -476,5 +431,3 @@ Licensed under the **MIT License**. See [LICENSE](../LICENSE) for details.
 For issues, questions, or contributions, please refer to the main Vera-Stack repository.
 
 ---
-
-**Made with ❤️ using Go & WebSockets**

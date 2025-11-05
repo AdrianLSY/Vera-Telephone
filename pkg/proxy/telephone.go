@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,20 @@ import (
 	"github.com/verastack/telephone/pkg/config"
 	"github.com/verastack/telephone/pkg/storage"
 )
+
+// Valid HTTP methods
+var validHTTPMethods = map[string]bool{
+	"GET":     true,
+	"POST":    true,
+	"PUT":     true,
+	"PATCH":   true,
+	"DELETE":  true,
+	"HEAD":    true,
+	"OPTIONS": true,
+}
+
+// UUID validation regex
+var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // PendingRequest tracks an in-flight proxy request
 type PendingRequest struct {
@@ -42,6 +57,10 @@ type Telephone struct {
 	client     *channels.Client
 	backend    *http.Client
 	tokenStore *storage.TokenStore
+
+	// Token management with thread-safety
+	currentToken string
+	tokenMu      sync.RWMutex
 
 	// Request correlation
 	pendingRequests map[string]*PendingRequest
@@ -81,23 +100,20 @@ func New(cfg *config.Config) (*Telephone, error) {
 		log.Printf("Using token from environment")
 	}
 
-	// Parse JWT to get claims
-	claims, err = auth.ParseJWT(token)
+	// Parse and verify JWT with signature verification
+	claims, err = auth.ParseJWT(token, cfg.SecretKeyBase)
 	if err != nil {
 		tokenStore.Close()
-		return nil, fmt.Errorf("failed to parse JWT: %w", err)
+		return nil, fmt.Errorf("failed to parse and verify JWT: %w", err)
 	}
 
-	// Check if token is expired
-	if claims.IsExpired() {
+	// Validate claims
+	if err := claims.Validate(); err != nil {
 		tokenStore.Close()
-		return nil, fmt.Errorf("token is expired (expired at %s)", claims.ExpiresAt())
+		return nil, fmt.Errorf("invalid token claims: %w", err)
 	}
 
-	// Update config with the token we're using (might be from DB)
-	cfg.Token = token
-
-	log.Printf("Token parsed successfully:")
+	log.Printf("Token parsed and verified successfully:")
 	log.Printf("  Path ID: %s", claims.PathID)
 	log.Printf("  Subject: %s", claims.Sub)
 	log.Printf("  Expires: %s (in %s)", claims.ExpiresAt(), claims.ExpiresIn())
@@ -105,7 +121,7 @@ func New(cfg *config.Config) (*Telephone, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Build WebSocket URL with token
-	wsURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", cfg.PlugboardURL, cfg.Token)
+	wsURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", cfg.PlugboardURL, token)
 
 	return &Telephone{
 		config:          cfg,
@@ -113,6 +129,7 @@ func New(cfg *config.Config) (*Telephone, error) {
 		client:          channels.NewClient(wsURL),
 		backend:         &http.Client{Timeout: cfg.RequestTimeout},
 		tokenStore:      tokenStore,
+		currentToken:    token,
 		pendingRequests: make(map[string]*PendingRequest),
 		ctx:             ctx,
 		cancel:          cancel,
@@ -121,11 +138,6 @@ func New(cfg *config.Config) (*Telephone, error) {
 
 // Start connects to Plugboard and starts the main loop
 func (t *Telephone) Start() error {
-	// Start health check server
-	if err := t.StartHealthServer(t.config.HealthPort); err != nil {
-		return fmt.Errorf("failed to start health server: %w", err)
-	}
-
 	// Connect to WebSocket
 	if err := t.client.Connect(); err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
@@ -182,7 +194,7 @@ func (t *Telephone) Stop() error {
 
 	// Disconnect from WebSocket
 	if err := t.client.Disconnect(); err != nil {
-		return err
+		log.Printf("Warning: error disconnecting WebSocket: %v", err)
 	}
 
 	// Close token store
@@ -197,6 +209,22 @@ func (t *Telephone) Stop() error {
 // Wait blocks until the Telephone is stopped
 func (t *Telephone) Wait() {
 	<-t.ctx.Done()
+}
+
+// getCurrentToken safely retrieves the current token
+func (t *Telephone) getCurrentToken() string {
+	t.tokenMu.RLock()
+	defer t.tokenMu.RUnlock()
+	return t.currentToken
+}
+
+// updateToken safely updates the current token and claims
+func (t *Telephone) updateToken(newToken string, newClaims *auth.JWTClaims) {
+	t.tokenMu.Lock()
+	defer t.tokenMu.Unlock()
+	t.currentToken = newToken
+	t.claims = newClaims
+	t.config.Token = newToken
 }
 
 // joinChannel joins the telephone channel
@@ -271,7 +299,6 @@ func (t *Telephone) sendHeartbeat() error {
 
 // handleHeartbeatAck handles heartbeat acknowledgment from Plugboard
 func (t *Telephone) handleHeartbeatAck(msg *channels.Message) {
-	// Just log that we received it - the connection is healthy
 	log.Printf("Heartbeat acknowledged")
 }
 
@@ -319,10 +346,15 @@ func (t *Telephone) refreshToken() error {
 		return fmt.Errorf("no token in refresh response")
 	}
 
-	// Re-parse claims to get new expiry
-	newClaims, err := auth.ParseJWT(newToken)
+	// Parse and verify new token
+	newClaims, err := auth.ParseJWT(newToken, t.config.SecretKeyBase)
 	if err != nil {
 		return fmt.Errorf("failed to parse new token: %w", err)
+	}
+
+	// Validate new claims
+	if err := newClaims.Validate(); err != nil {
+		return fmt.Errorf("invalid new token claims: %w", err)
 	}
 
 	// Save encrypted token to database
@@ -333,9 +365,8 @@ func (t *Telephone) refreshToken() error {
 		log.Printf("Token persisted to database")
 	}
 
-	// Update in-memory token
-	t.config.Token = newToken
-	t.claims = newClaims
+	// Update in-memory token with thread safety
+	t.updateToken(newToken, newClaims)
 
 	log.Printf("Token refreshed successfully (expires in %v)", newClaims.ExpiresIn())
 
@@ -347,30 +378,87 @@ func (t *Telephone) refreshToken() error {
 	return nil
 }
 
+// validateProxyRequest validates incoming proxy request payload
+func validateProxyRequest(payload map[string]interface{}) error {
+	// Validate request_id
+	requestID, ok := payload["request_id"].(string)
+	if !ok || requestID == "" {
+		return fmt.Errorf("missing or invalid request_id")
+	}
+	if !uuidRegex.MatchString(requestID) {
+		return fmt.Errorf("request_id must be a valid UUID")
+	}
+
+	// Validate method
+	method, ok := payload["method"].(string)
+	if !ok || method == "" {
+		return fmt.Errorf("missing or invalid method")
+	}
+	if !validHTTPMethods[strings.ToUpper(method)] {
+		return fmt.Errorf("invalid HTTP method: %s", method)
+	}
+
+	// Validate path
+	path, ok := payload["path"].(string)
+	if !ok {
+		return fmt.Errorf("missing or invalid path")
+	}
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+
+	// Validate headers if present
+	if headers, ok := payload["headers"].(map[string]interface{}); ok {
+		for k, v := range headers {
+			if k == "" {
+				return fmt.Errorf("header name cannot be empty")
+			}
+			if _, ok := v.(string); !ok {
+				return fmt.Errorf("header value must be string for key: %s", k)
+			}
+		}
+	}
+
+	return nil
+}
+
 // handleProxyRequest handles an incoming proxy request from Plugboard
 func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 	// Track active request
 	t.activeRequests.Add(1)
 	defer t.activeRequests.Done()
 
-	log.Printf("Received proxy request: %s %s", msg.Payload["method"], msg.Payload["path"])
-
-	requestID, ok := msg.Payload["request_id"].(string)
-	if !ok {
-		log.Printf("Missing request_id in proxy request")
+	// Validate request
+	if err := validateProxyRequest(msg.Payload); err != nil {
+		log.Printf("Invalid proxy request: %v", err)
+		requestID, _ := msg.Payload["request_id"].(string)
+		if requestID != "" {
+			t.sendProxyResponse(&ProxyResponse{
+				RequestID: requestID,
+				Status:    400,
+				Headers:   map[string]string{"Content-Type": "text/plain"},
+				Body:      fmt.Sprintf("Bad request: %v", err),
+				Chunked:   false,
+			})
+		}
 		return
 	}
 
-	// Forward to backend
-	resp, err := t.forwardToBackend(msg.Payload)
+	requestID := msg.Payload["request_id"].(string)
+	method := msg.Payload["method"].(string)
+	path := msg.Payload["path"].(string)
+
+	log.Printf("Received proxy request [%s]: %s %s", requestID, method, path)
+
+	// Forward to backend with retry logic
+	resp, err := t.forwardToBackendWithRetry(msg.Payload)
 	if err != nil {
-		log.Printf("Error forwarding to backend: %v", err)
-		// Send error response
+		log.Printf("Error forwarding to backend [%s]: %v", requestID, err)
 		t.sendProxyResponse(&ProxyResponse{
 			RequestID: requestID,
-			Status:    500,
+			Status:    502,
 			Headers:   map[string]string{"Content-Type": "text/plain"},
-			Body:      fmt.Sprintf("Internal error: %v", err),
+			Body:      fmt.Sprintf("Bad Gateway: %v", err),
 			Chunked:   false,
 		})
 		return
@@ -378,8 +466,48 @@ func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 
 	// Send response back
 	if err := t.sendProxyResponse(resp); err != nil {
-		log.Printf("Error sending proxy response: %v", err)
+		log.Printf("Error sending proxy response [%s]: %v", requestID, err)
 	}
+}
+
+// forwardToBackendWithRetry forwards the request with retry logic for transient failures
+func (t *Telephone) forwardToBackendWithRetry(payload map[string]interface{}) (*ProxyResponse, error) {
+	method := payload["method"].(string)
+	maxRetries := 0
+
+	// Only retry idempotent methods
+	if method == "GET" || method == "HEAD" || method == "OPTIONS" || method == "PUT" {
+		maxRetries = 2
+	}
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 100ms, 200ms
+			backoff := time.Duration(100*attempt) * time.Millisecond
+			log.Printf("Retrying backend request (attempt %d/%d) after %v", attempt+1, maxRetries+1, backoff)
+			time.Sleep(backoff)
+		}
+
+		resp, err := t.forwardToBackend(payload)
+		if err == nil {
+			// Check if we should retry based on status code
+			if resp.Status >= 500 && resp.Status < 600 && attempt < maxRetries {
+				lastErr = fmt.Errorf("server error: status %d", resp.Status)
+				continue
+			}
+			return resp, nil
+		}
+
+		lastErr = err
+
+		// Don't retry on context cancellation
+		if t.ctx.Err() != nil {
+			return nil, fmt.Errorf("request cancelled: %w", err)
+		}
+	}
+
+	return nil, fmt.Errorf("backend request failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 // forwardToBackend forwards the request to the local backend
@@ -395,8 +523,6 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 	if queryString, ok := payload["query_string"].(string); ok && queryString != "" {
 		backendURL += "?" + queryString
 	}
-
-	log.Printf("Forwarding %s %s to backend", method, backendURL)
 
 	// Handle request body for POST/PUT/PATCH
 	var bodyReader io.Reader
@@ -429,12 +555,28 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 	}
 	defer resp.Body.Close()
 
-	// Read response body
-	var body []byte
-	if resp.Body != nil {
-		body, err = io.ReadAll(resp.Body)
+	// Read response body with streaming for large responses
+	const maxChunkSize = 1024 * 1024 // 1MB
+	var chunks []string
+	var totalSize int
+	buf := make([]byte, maxChunkSize)
+
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			chunks = append(chunks, string(buf[:n]))
+			totalSize += n
+		}
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response body: %w", err)
+		}
+
+		// Prevent excessive memory usage
+		if totalSize > 100*1024*1024 { // 100MB limit
+			return nil, fmt.Errorf("response body too large: %d bytes", totalSize)
 		}
 	}
 
@@ -446,37 +588,23 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 		}
 	}
 
-	// Check if response should be chunked (> 1MB)
-	const maxChunkSize = 1024 * 1024 // 1MB
-	bodyStr := string(body)
+	// Determine if response should be chunked
+	chunked := len(chunks) > 1
 
-	if len(body) > maxChunkSize {
-		// Split into chunks
-		chunks := make([]string, 0)
-		for i := 0; i < len(bodyStr); i += maxChunkSize {
-			end := i + maxChunkSize
-			if end > len(bodyStr) {
-				end = len(bodyStr)
-			}
-			chunks = append(chunks, bodyStr[i:end])
-		}
-
-		return &ProxyResponse{
-			RequestID: requestID,
-			Status:    resp.StatusCode,
-			Headers:   responseHeaders,
-			Body:      "",
-			Chunked:   true,
-			Chunks:    chunks,
-		}, nil
+	var body string
+	if !chunked && len(chunks) > 0 {
+		body = chunks[0]
 	}
+
+	log.Printf("Backend response [%s]: %d (%d bytes, %d chunks)", requestID, resp.StatusCode, totalSize, len(chunks))
 
 	return &ProxyResponse{
 		RequestID: requestID,
 		Status:    resp.StatusCode,
 		Headers:   responseHeaders,
-		Body:      bodyStr,
-		Chunked:   false,
+		Body:      body,
+		Chunked:   chunked,
+		Chunks:    chunks,
 	}, nil
 }
 
@@ -505,9 +633,9 @@ func (t *Telephone) sendProxyResponse(resp *ProxyResponse) error {
 	}
 
 	if resp.Chunked {
-		log.Printf("Sent chunked proxy response for request %s: %d (%d chunks)", resp.RequestID, resp.Status, len(resp.Chunks))
+		log.Printf("Sent chunked proxy response [%s]: %d (%d chunks)", resp.RequestID, resp.Status, len(resp.Chunks))
 	} else {
-		log.Printf("Sent proxy response for request %s: %d", resp.RequestID, resp.Status)
+		log.Printf("Sent proxy response [%s]: %d", resp.RequestID, resp.Status)
 	}
 	return nil
 }

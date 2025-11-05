@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 // TokenStore manages encrypted token persistence in SQLite
@@ -32,16 +34,30 @@ type TokenRecord struct {
 
 // NewTokenStore creates a new encrypted token store
 func NewTokenStore(dbPath string, secretKeyBase string) (*TokenStore, error) {
+	if secretKeyBase == "" {
+		return nil, fmt.Errorf("secret key base cannot be empty")
+	}
+
 	// Open SQLite database
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Derive a 32-byte key from the secret key base using SHA-256
-	hasher := sha256.New()
-	hasher.Write([]byte(secretKeyBase))
-	secretKey := hasher.Sum(nil)
+	// Set connection pool settings
+	db.SetMaxOpenConns(1) // SQLite works best with single connection
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(time.Hour)
+
+	// Derive a 32-byte key from the secret key base using PBKDF2
+	// This is more secure than plain SHA-256
+	secretKey := pbkdf2.Key(
+		[]byte(secretKeyBase),
+		[]byte("telephone-token-encryption-v1"), // salt
+		100000,                                   // iterations
+		32,                                       // key length (AES-256)
+		sha256.New,
+	)
 
 	store := &TokenStore{
 		db:        db,
@@ -59,6 +75,9 @@ func NewTokenStore(dbPath string, secretKeyBase string) (*TokenStore, error) {
 
 // initSchema creates the tokens table if it doesn't exist
 func (ts *TokenStore) initSchema() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	query := `
 		CREATE TABLE IF NOT EXISTS tokens (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,14 +88,19 @@ func (ts *TokenStore) initSchema() error {
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_tokens_updated_at ON tokens(updated_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_tokens_expires_at ON tokens(expires_at DESC);
 	`
 
-	_, err := ts.db.Exec(query)
+	_, err := ts.db.ExecContext(ctx, query)
 	return err
 }
 
 // encrypt encrypts the token using AES-256-GCM
 func (ts *TokenStore) encrypt(plaintext string) (string, error) {
+	if plaintext == "" {
+		return "", fmt.Errorf("plaintext cannot be empty")
+	}
+
 	block, err := aes.NewCipher(ts.secretKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to create cipher: %w", err)
@@ -102,6 +126,10 @@ func (ts *TokenStore) encrypt(plaintext string) (string, error) {
 
 // decrypt decrypts the token using AES-256-GCM
 func (ts *TokenStore) decrypt(encoded string) (string, error) {
+	if encoded == "" {
+		return "", fmt.Errorf("encoded text cannot be empty")
+	}
+
 	// Decode from base64
 	ciphertext, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
@@ -134,8 +162,26 @@ func (ts *TokenStore) decrypt(encoded string) (string, error) {
 
 // SaveToken encrypts and saves a token to the database
 func (ts *TokenStore) SaveToken(token string, expiresAt time.Time) error {
+	if token == "" {
+		return fmt.Errorf("token cannot be empty")
+	}
+
+	if expiresAt.Before(time.Now()) {
+		return fmt.Errorf("token expiration is in the past")
+	}
+
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Start transaction
+	tx, err := ts.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
 
 	// Encrypt the token
 	encryptedToken, err := ts.encrypt(token)
@@ -149,9 +195,14 @@ func (ts *TokenStore) SaveToken(token string, expiresAt time.Time) error {
 		VALUES (?, ?, ?)
 	`
 
-	_, err = ts.db.Exec(query, encryptedToken, expiresAt, time.Now())
+	_, err = tx.ExecContext(ctx, query, encryptedToken, expiresAt, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to save token: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil
@@ -161,6 +212,9 @@ func (ts *TokenStore) SaveToken(token string, expiresAt time.Time) error {
 func (ts *TokenStore) LoadToken() (string, time.Time, error) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	query := `
 		SELECT encrypted_token, expires_at
@@ -173,7 +227,7 @@ func (ts *TokenStore) LoadToken() (string, time.Time, error) {
 	var encryptedToken string
 	var expiresAt time.Time
 
-	err := ts.db.QueryRow(query, time.Now()).Scan(&encryptedToken, &expiresAt)
+	err := ts.db.QueryRowContext(ctx, query, time.Now()).Scan(&encryptedToken, &expiresAt)
 	if err == sql.ErrNoRows {
 		return "", time.Time{}, fmt.Errorf("no valid token found")
 	}
@@ -195,10 +249,32 @@ func (ts *TokenStore) CleanupExpiredTokens() error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Start transaction
+	tx, err := ts.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	query := `DELETE FROM tokens WHERE expires_at < ?`
-	_, err := ts.db.Exec(query, time.Now())
+	result, err := tx.ExecContext(ctx, query, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to cleanup expired tokens: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Log how many were deleted
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
+		// This will be logged by the caller
+		_ = rowsAffected
 	}
 
 	return nil
@@ -214,16 +290,19 @@ func (ts *TokenStore) Stats() (total int, valid int, expired int, err error) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Total tokens
-	err = ts.db.QueryRow("SELECT COUNT(*) FROM tokens").Scan(&total)
+	err = ts.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tokens").Scan(&total)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, fmt.Errorf("failed to count total tokens: %w", err)
 	}
 
 	// Valid tokens
-	err = ts.db.QueryRow("SELECT COUNT(*) FROM tokens WHERE expires_at > ?", time.Now()).Scan(&valid)
+	err = ts.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tokens WHERE expires_at > ?", time.Now()).Scan(&valid)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, fmt.Errorf("failed to count valid tokens: %w", err)
 	}
 
 	expired = total - valid

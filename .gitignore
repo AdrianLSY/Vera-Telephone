@@ -19,6 +19,9 @@ go.work
 .env.local
 .env.*.local
 
+# Version management
+.tool-versions
+
 # Token database
 telephone.db
 telephone.db-*

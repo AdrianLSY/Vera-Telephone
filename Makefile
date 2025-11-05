@@ -86,7 +86,6 @@ docker-run: docker-build ## Build and run Docker container
 	@echo "Running Docker container..."
 	docker run --rm -it \
 		--env-file .env \
-		-p 9090:9090 \
 		$(DOCKER_IMAGE):latest
 
 docker-push: docker-build ## Push Docker image to registry

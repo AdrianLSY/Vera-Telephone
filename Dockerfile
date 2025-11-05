@@ -1,8 +1,8 @@
 # Build stage
 FROM golang:1.23-alpine AS builder
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates
+# Install build dependencies (CGO required for sqlite3)
+RUN apk add --no-cache git ca-certificates gcc musl-dev sqlite-dev
 
 WORKDIR /build
 
@@ -13,17 +13,17 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-w -s -X main.version=$(git describe --tags --always --dirty)" \
+# Build the binary with CGO enabled for sqlite3
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')" \
     -o telephone \
     ./cmd/telephone
 
 # Runtime stage
-FROM alpine:latest
+FROM alpine:3.19
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata sqlite-libs
 
 # Create non-root user
 RUN addgroup -g 1000 telephone && \
@@ -40,17 +40,9 @@ RUN chown -R telephone:telephone /app
 # Switch to non-root user
 USER telephone
 
-# Expose health check port
-EXPOSE 9090
-
 # Set default environment variables
 ENV PLUGBOARD_URL=ws://plugboard:4000/telephone/websocket \
     BACKEND_HOST=localhost \
-    BACKEND_PORT=8080 \
-    HEALTH_PORT=9090
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:9090/health || exit 1
+    BACKEND_PORT=8080
 
 ENTRYPOINT ["/usr/local/bin/telephone"]

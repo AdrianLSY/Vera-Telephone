@@ -63,13 +63,13 @@ func main() {
 		log.Printf("%s %s - 200 OK", r.Method, r.URL.Path)
 	})
 
-	log.Println("Test backend server starting on :8888")
+	log.Println("Test backend server starting on :8080")
 	log.Println("Endpoints:")
 	log.Println("  GET /")
 	log.Println("  GET /test")
 	log.Println("  GET /echo")
 
-	if err := http.ListenAndServe(":8888", nil); err != nil {
+	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

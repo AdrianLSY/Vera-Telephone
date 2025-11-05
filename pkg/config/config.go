@@ -28,9 +28,6 @@ type Config struct {
 	MaxBackoff     time.Duration
 	MaxRetries     int
 
-	// Health check
-	HealthPort string
-
 	// Token persistence
 	SecretKeyBase string
 	TokenDBPath   string
@@ -42,7 +39,7 @@ func LoadFromEnv() (*Config, error) {
 		// Defaults
 		PlugboardURL:         "ws://localhost:4000/telephone/websocket",
 		BackendHost:          "localhost",
-		BackendPort:          3000,
+		BackendPort:          8080,
 		ConnectTimeout:       10 * time.Second,
 		RequestTimeout:       30 * time.Second,
 		HeartbeatInterval:    30 * time.Second,
@@ -50,7 +47,6 @@ func LoadFromEnv() (*Config, error) {
 		InitialBackoff:       1 * time.Second,
 		MaxBackoff:           30 * time.Second,
 		MaxRetries:           -1, // Infinite retries
-		HealthPort:           "9090",
 		TokenDBPath:          "./telephone.db",
 		SecretKeyBase:        "", // Must be provided
 	}
@@ -97,10 +93,6 @@ func LoadFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("invalid REQUEST_TIMEOUT: %w", err)
 		}
 		cfg.RequestTimeout = timeout
-	}
-
-	if port := os.Getenv("HEALTH_PORT"); port != "" {
-		cfg.HealthPort = port
 	}
 
 	if secretKey := os.Getenv("SECRET_KEY_BASE"); secretKey != "" {
