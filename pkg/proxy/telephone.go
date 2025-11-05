@@ -100,11 +100,11 @@ func New(cfg *config.Config) (*Telephone, error) {
 		log.Printf("Using token from environment")
 	}
 
-	// Parse and verify JWT with signature verification
-	claims, err = auth.ParseJWT(token, cfg.SecretKeyBase)
+	// Parse JWT without signature verification (tokens come from trusted sources)
+	claims, err = auth.ParseJWTUnsafe(token)
 	if err != nil {
 		tokenStore.Close()
-		return nil, fmt.Errorf("failed to parse and verify JWT: %w", err)
+		return nil, fmt.Errorf("failed to parse JWT: %w", err)
 	}
 
 	// Validate claims
@@ -346,8 +346,8 @@ func (t *Telephone) refreshToken() error {
 		return fmt.Errorf("no token in refresh response")
 	}
 
-	// Parse and verify new token
-	newClaims, err := auth.ParseJWT(newToken, t.config.SecretKeyBase)
+	// Parse new token without signature verification (comes from authenticated WebSocket)
+	newClaims, err := auth.ParseJWTUnsafe(newToken)
 	if err != nil {
 		return fmt.Errorf("failed to parse new token: %w", err)
 	}

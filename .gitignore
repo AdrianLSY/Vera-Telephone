@@ -15,9 +15,8 @@ bin/
 # Go workspace file
 go.work
 
-# Environment variables
-.env.local
-.env.*.local
+# Environment
+.env*
 
 # Version management
 .tool-versions
