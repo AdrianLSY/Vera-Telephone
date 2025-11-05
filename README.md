@@ -59,6 +59,7 @@ BACKEND_HOST=localhost
 BACKEND_PORT=8080
 CONNECT_TIMEOUT=10s
 REQUEST_TIMEOUT=30s
+TOKEN_REFRESH_INTERVAL=25m
 TOKEN_DB_PATH=./telephone.db
 ```
 
@@ -205,6 +206,7 @@ services:
 | `BACKEND_PORT` | Backend port | `8080` | ❌ |
 | `CONNECT_TIMEOUT` | Connection timeout | `10s` | ❌ |
 | `REQUEST_TIMEOUT` | Request timeout | `30s` | ❌ |
+| `TOKEN_REFRESH_INTERVAL` | Token refresh interval | `25m` | ❌ |
 | `TOKEN_DB_PATH` | Path to SQLite token database | `./telephone.db` | ❌ |
 
 ---

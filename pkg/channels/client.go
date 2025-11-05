@@ -16,6 +16,7 @@ type Client struct {
 	url      string
 	conn     *websocket.Conn
 	connLock sync.RWMutex
+	urlMu    sync.RWMutex // Protects URL updates
 
 	// Message handling
 	handlers map[string]MessageHandler
@@ -31,6 +32,10 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	// Per-connection context for graceful readLoop shutdown
+	readCtx    context.Context
+	readCancel context.CancelFunc
 
 	connected atomic.Bool
 }
@@ -51,16 +56,40 @@ func NewClient(url string) *Client {
 	}
 }
 
+// UpdateURL updates the WebSocket URL (useful for reconnection with new tokens)
+func (c *Client) UpdateURL(newURL string) {
+	c.urlMu.Lock()
+	defer c.urlMu.Unlock()
+	c.url = newURL
+}
+
+// GetURL returns the current WebSocket URL
+func (c *Client) GetURL() string {
+	c.urlMu.RLock()
+	defer c.urlMu.RUnlock()
+	return c.url
+}
+
 // Connect establishes a WebSocket connection
 func (c *Client) Connect() error {
 	c.connLock.Lock()
 	defer c.connLock.Unlock()
 
+	// Clean up any stale connection first
 	if c.conn != nil {
-		return fmt.Errorf("already connected")
+		c.conn.Close()
+		c.conn = nil
 	}
 
-	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
+	// Wait for previous readLoop to finish if it exists
+	if c.readCancel != nil {
+		c.readCancel()
+		// Note: We can't wait here because we hold the lock
+	}
+
+	// Get current URL (may have been updated for reconnection)
+	currentURL := c.GetURL()
+	conn, _, err := websocket.DefaultDialer.Dial(currentURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect to %s: %w", c.url, err)
 	}
@@ -68,16 +97,24 @@ func (c *Client) Connect() error {
 	c.conn = conn
 	c.connected.Store(true)
 
+	// Create new context for this connection's readLoop
+	c.readCtx, c.readCancel = context.WithCancel(c.ctx)
+
 	// Start read loop
 	c.wg.Add(1)
 	go c.readLoop()
 
-	log.Printf("Connected to %s", c.url)
+	log.Printf("Connected to %s", currentURL)
 	return nil
 }
 
 // Disconnect closes the WebSocket connection
 func (c *Client) Disconnect() error {
+	// Cancel readLoop context first
+	if c.readCancel != nil {
+		c.readCancel()
+	}
+
 	c.connLock.Lock()
 	if c.conn != nil {
 		c.conn.Close()
@@ -86,9 +123,18 @@ func (c *Client) Disconnect() error {
 	c.connLock.Unlock()
 
 	c.connected.Store(false)
+
+	// Note: We don't cancel the main context here anymore
+	// That's only done on final shutdown via Close()
+
+	return nil
+}
+
+// Close permanently shuts down the client (for final cleanup)
+func (c *Client) Close() error {
+	c.Disconnect()
 	c.cancel()
 	c.wg.Wait()
-
 	return nil
 }
 
@@ -99,8 +145,8 @@ func (c *Client) IsConnected() bool {
 
 // Send sends a message to the server
 func (c *Client) Send(msg *Message) error {
-	c.connLock.RLock()
-	defer c.connLock.RUnlock()
+	c.connLock.Lock()
+	defer c.connLock.Unlock()
 
 	if c.conn == nil {
 		return fmt.Errorf("not connected")
@@ -167,10 +213,25 @@ func (c *Client) NextRef() string {
 // readLoop continuously reads messages from the WebSocket
 func (c *Client) readLoop() {
 	defer c.wg.Done()
+	defer func() {
+		// Clean up connection when readLoop exits
+		c.connLock.Lock()
+		if c.conn != nil {
+			c.conn.Close()
+			c.conn = nil
+		}
+		c.connLock.Unlock()
+		c.connected.Store(false)
+		log.Printf("readLoop exited, connection cleaned up")
+	}()
 
 	for {
 		select {
+		case <-c.readCtx.Done():
+			log.Printf("readLoop cancelled")
+			return
 		case <-c.ctx.Done():
+			log.Printf("readLoop main context cancelled")
 			return
 		default:
 		}
@@ -180,6 +241,7 @@ func (c *Client) readLoop() {
 		c.connLock.RUnlock()
 
 		if conn == nil {
+			log.Printf("readLoop: connection is nil")
 			return
 		}
 
@@ -188,7 +250,6 @@ func (c *Client) readLoop() {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("WebSocket read error: %v", err)
 			}
-			c.connected.Store(false)
 			return
 		}
 

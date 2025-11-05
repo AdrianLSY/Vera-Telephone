@@ -10,6 +10,21 @@ import (
 
 // reconnect handles reconnection logic with exponential backoff
 func (t *Telephone) reconnect() error {
+	// Prevent concurrent reconnection attempts
+	t.reconnecting.Lock()
+	if t.reconnectFlag {
+		t.reconnecting.Unlock()
+		return fmt.Errorf("reconnection already in progress")
+	}
+	t.reconnectFlag = true
+	t.reconnecting.Unlock()
+
+	defer func() {
+		t.reconnecting.Lock()
+		t.reconnectFlag = false
+		t.reconnecting.Unlock()
+	}()
+
 	backoff := t.config.InitialBackoff
 	attempt := 0
 
@@ -21,7 +36,13 @@ func (t *Telephone) reconnect() error {
 		}
 
 		attempt++
+
+		// Log which token we're using for debugging
+		currentToken := t.getCurrentToken()
+		currentURL := t.client.GetURL()
 		log.Printf("Reconnection attempt %d (backoff: %v)", attempt, backoff)
+		log.Printf("Current token (last 20 chars): ...%s", currentToken[len(currentToken)-20:])
+		log.Printf("Current WebSocket URL (token portion): ...%s", currentURL[len(currentURL)-20:])
 
 		// Try to connect
 		if err := t.client.Connect(); err != nil {
@@ -97,6 +118,10 @@ func (t *Telephone) monitorConnection() {
 					consecutiveFailures, maxConsecutiveFailures)
 
 				if err := t.reconnect(); err != nil {
+					// Ignore "already in progress" errors
+					if err.Error() == "reconnection already in progress" {
+						continue
+					}
 					log.Printf("Reconnection failed: %v", err)
 
 					// Check if we should give up

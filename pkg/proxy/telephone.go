@@ -59,8 +59,9 @@ type Telephone struct {
 	tokenStore *storage.TokenStore
 
 	// Token management with thread-safety
-	currentToken string
-	tokenMu      sync.RWMutex
+	originalToken string // Token from environment (never changes, used for reconnection after server restart)
+	currentToken  string // Current token (may be refreshed)
+	tokenMu       sync.RWMutex
 
 	// Request correlation
 	pendingRequests map[string]*PendingRequest
@@ -75,6 +76,10 @@ type Telephone struct {
 	// Heartbeat
 	lastHeartbeat time.Time
 	heartbeatLock sync.RWMutex
+
+	// Reconnection
+	reconnecting  sync.Mutex
+	reconnectFlag bool
 }
 
 // New creates a new Telephone instance
@@ -94,10 +99,14 @@ func New(cfg *config.Config) (*Telephone, error) {
 		// Use persisted token if it's still valid
 		token = persistedToken
 		log.Printf("Loaded persisted token from database (expires: %s)", expiresAt)
-	} else {
+	} else if cfg.Token != "" {
 		// Fall back to environment token
 		token = cfg.Token
 		log.Printf("Using token from environment")
+	} else {
+		// No token available
+		tokenStore.Close()
+		return nil, fmt.Errorf("no valid token available: please provide TELEPHONE_TOKEN environment variable or ensure database has a valid token")
 	}
 
 	// Parse JWT without signature verification (tokens come from trusted sources)
@@ -120,6 +129,10 @@ func New(cfg *config.Config) (*Telephone, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Store the initial/original token from environment for reconnection
+	// This is needed because after server restart, refreshed tokens may not be recognized
+	originalToken := cfg.Token
+
 	// Build WebSocket URL with token
 	wsURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", cfg.PlugboardURL, token)
 
@@ -127,6 +140,7 @@ func New(cfg *config.Config) (*Telephone, error) {
 		config:          cfg,
 		claims:          claims,
 		client:          channels.NewClient(wsURL),
+		originalToken:   originalToken,
 		backend:         &http.Client{Timeout: cfg.RequestTimeout},
 		tokenStore:      tokenStore,
 		currentToken:    token,
@@ -192,9 +206,9 @@ func (t *Telephone) Stop() error {
 	// Wait for background goroutines
 	t.wg.Wait()
 
-	// Disconnect from WebSocket
-	if err := t.client.Disconnect(); err != nil {
-		log.Printf("Warning: error disconnecting WebSocket: %v", err)
+	// Close WebSocket client (permanent shutdown)
+	if err := t.client.Close(); err != nil {
+		log.Printf("Warning: error closing WebSocket client: %v", err)
 	}
 
 	// Close token store
@@ -267,6 +281,11 @@ func (t *Telephone) heartbeatLoop() {
 		case <-t.ctx.Done():
 			return
 		case <-ticker.C:
+			// Skip heartbeat if not connected
+			if !t.client.IsConnected() {
+				continue
+			}
+
 			if err := t.sendHeartbeat(); err != nil {
 				log.Printf("Heartbeat error: %v", err)
 			}
@@ -314,6 +333,11 @@ func (t *Telephone) tokenRefreshLoop() {
 		case <-t.ctx.Done():
 			return
 		case <-ticker.C:
+			// Skip token refresh if not connected
+			if !t.client.IsConnected() {
+				continue
+			}
+
 			if err := t.refreshToken(); err != nil {
 				log.Printf("Token refresh error: %v", err)
 			}
@@ -368,7 +392,14 @@ func (t *Telephone) refreshToken() error {
 	// Update in-memory token with thread safety
 	t.updateToken(newToken, newClaims)
 
+	// CRITICAL: Update the WebSocket URL with the new token
+	// Plugboard updates the token_hash in its database on refresh,
+	// so we must use the new token for reconnection
+	newWsURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", t.config.PlugboardURL, newToken)
+	t.client.UpdateURL(newWsURL)
+
 	log.Printf("Token refreshed successfully (expires in %v)", newClaims.ExpiresIn())
+	log.Printf("WebSocket URL updated with new token for reconnection")
 
 	// Cleanup old expired tokens
 	if err := t.tokenStore.CleanupExpiredTokens(); err != nil {

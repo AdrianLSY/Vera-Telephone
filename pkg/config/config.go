@@ -51,15 +51,12 @@ func LoadFromEnv() (*Config, error) {
 		SecretKeyBase:        "", // Must be provided
 	}
 
-	// Required: Token
+	// Optional: Token (can be loaded from database if not provided)
 	cfg.Token = os.Getenv("TELEPHONE_TOKEN")
 	if cfg.Token == "" {
 		// Try reading from .env file format
-		if token := os.Getenv("token"); token != "" {
-			cfg.Token = token
-		} else {
-			return nil, fmt.Errorf("TELEPHONE_TOKEN or token environment variable is required")
-		}
+		cfg.Token = os.Getenv("token")
+		// Note: If still empty, proxy.New() will try to load from database
 	}
 
 	// Optional overrides
@@ -93,6 +90,14 @@ func LoadFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("invalid REQUEST_TIMEOUT: %w", err)
 		}
 		cfg.RequestTimeout = timeout
+	}
+
+	if intervalStr := os.Getenv("TOKEN_REFRESH_INTERVAL"); intervalStr != "" {
+		interval, err := time.ParseDuration(intervalStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid TOKEN_REFRESH_INTERVAL: %w", err)
+		}
+		cfg.TokenRefreshInterval = interval
 	}
 
 	if secretKey := os.Getenv("SECRET_KEY_BASE"); secretKey != "" {
