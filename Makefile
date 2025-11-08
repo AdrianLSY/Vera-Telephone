@@ -105,6 +105,6 @@ all: clean verify build ## Clean, verify, and build
 # Backend test server
 test-backend: ## Run the test backend server
 	@echo "Starting test backend server on :8080..."
-	$(GO) run ./test-backend/server.go
+	$(GO) run ./test_server/server.go
 
 .DEFAULT_GOAL := help

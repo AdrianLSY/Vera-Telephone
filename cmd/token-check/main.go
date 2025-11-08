@@ -20,7 +20,7 @@ func main() {
 
 	log.SetFlags(0)
 
-	fmt.Println("=== Telephone Token Diagnostic ===\n")
+	fmt.Println("=== Telephone Token Diagnostic ===")
 
 	// Check .env file
 	fmt.Println("1. Checking .env file token:")
@@ -30,13 +30,9 @@ func main() {
 		if err := godotenv.Load(*envFile); err != nil {
 			fmt.Printf("   ❌ Error loading .env: %v\n", err)
 		} else {
-			token := os.Getenv("token")
+			token := os.Getenv("TELEPHONE_TOKEN")
 			if token == "" {
-				token = os.Getenv("TELEPHONE_TOKEN")
-			}
-
-			if token == "" {
-				fmt.Println("   ❌ No token found in .env (checked 'token' and 'TELEPHONE_TOKEN')")
+				fmt.Println("   ❌ No token found in .env")
 			} else {
 				fmt.Printf("   ✓ Token found in .env (length: %d)\n", len(token))
 

@@ -321,26 +321,55 @@ func (t *Telephone) handleHeartbeatAck(msg *channels.Message) {
 	log.Printf("Heartbeat acknowledged")
 }
 
-// tokenRefreshLoop periodically refreshes the JWT token
+// tokenRefreshLoop refreshes the JWT token at half of its lifespan
 func (t *Telephone) tokenRefreshLoop() {
 	defer t.wg.Done()
 
-	ticker := time.NewTicker(t.config.TokenRefreshInterval)
-	defer ticker.Stop()
-
 	for {
+		// Calculate time until half-life of current token
+		t.tokenMu.RLock()
+		currentClaims := t.claims
+		t.tokenMu.RUnlock()
+
+		timeUntilRefresh := currentClaims.TimeUntilHalfLife()
+
+		// If token is already past half-life, refresh immediately
+		if timeUntilRefresh == 0 {
+			log.Printf("Token is already at half-life, refreshing immediately")
+			timeUntilRefresh = 1 * time.Second
+		} else {
+			log.Printf("Token will be refreshed in %s (at half-life of %s lifespan)",
+				timeUntilRefresh, currentClaims.Lifespan())
+		}
+
+		// Wait until half-life or context cancellation
 		select {
 		case <-t.ctx.Done():
 			return
-		case <-ticker.C:
+		case <-time.After(timeUntilRefresh):
 			// Skip token refresh if not connected
 			if !t.client.IsConnected() {
-				continue
+				// If not connected, check again in 5 seconds
+				log.Printf("Not connected, will retry token refresh in 5 seconds")
+				select {
+				case <-t.ctx.Done():
+					return
+				case <-time.After(5 * time.Second):
+					continue
+				}
 			}
 
 			if err := t.refreshToken(); err != nil {
 				log.Printf("Token refresh error: %v", err)
+				// On error, retry in 5 seconds
+				select {
+				case <-t.ctx.Done():
+					return
+				case <-time.After(5 * time.Second):
+					continue
+				}
 			}
+			// After successful refresh, loop will recalculate based on new token
 		}
 	}
 }

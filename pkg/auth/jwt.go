@@ -104,6 +104,29 @@ func (c *JWTClaims) ExpiresAt() time.Time {
 	return time.Unix(c.Exp, 0)
 }
 
+// Lifespan returns the total duration of the token (from issued to expiration)
+func (c *JWTClaims) Lifespan() time.Duration {
+	return time.Unix(c.Exp, 0).Sub(time.Unix(c.IAT, 0))
+}
+
+// TimeUntilHalfLife returns the duration until the token reaches half of its lifespan
+// Returns 0 if the token has already passed half-life
+func (c *JWTClaims) TimeUntilHalfLife() time.Duration {
+	lifespan := c.Lifespan()
+	halfLifeTime := time.Unix(c.IAT, 0).Add(lifespan / 2)
+
+	duration := time.Until(halfLifeTime)
+	if duration < 0 {
+		return 0
+	}
+	return duration
+}
+
+// IsAtHalfLife returns true if the token has reached or passed half of its lifespan
+func (c *JWTClaims) IsAtHalfLife() bool {
+	return c.TimeUntilHalfLife() == 0
+}
+
 // Validate performs additional validation on the claims
 func (c *JWTClaims) Validate() error {
 	// Check expiration

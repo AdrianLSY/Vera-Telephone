@@ -30,7 +30,7 @@ QUICKSTART.md
 
 # Test files
 *_test.go
-test-backend/
+test_server/
 
 # Coverage
 coverage.out

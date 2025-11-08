@@ -9,9 +9,6 @@ import (
 
 func TestParseJWT(t *testing.T) {
 	secretKey := "test-secret-key-for-jwt-signing"
-	pathID := "test-path-123"
-	subject := "mount-point-456"
-	jti := "jwt-id-789"
 
 	tests := []struct {
 		name        string
@@ -426,5 +423,112 @@ func TestJWTClaimsExpiresAt(t *testing.T) {
 	// Should match within 1 second
 	if expiresAt.Unix() != expiry.Unix() {
 		t.Errorf("expected ExpiresAt() %v, got %v", expiry, expiresAt)
+	}
+}
+
+func TestJWTClaimsLifespan(t *testing.T) {
+	now := time.Now()
+	claims := &JWTClaims{
+		IAT: now.Unix(),
+		Exp: now.Add(1 * time.Hour).Unix(),
+	}
+
+	lifespan := claims.Lifespan()
+
+	// Should be 1 hour
+	expected := 1 * time.Hour
+	if lifespan != expected {
+		t.Errorf("expected Lifespan() %v, got %v", expected, lifespan)
+	}
+}
+
+func TestJWTClaimsTimeUntilHalfLife(t *testing.T) {
+	tests := []struct {
+		name                string
+		issuedAt            time.Time
+		expiresAt           time.Time
+		expectedMinDuration time.Duration
+		expectedMaxDuration time.Duration
+	}{
+		{
+			name:                "new token (1 hour lifespan)",
+			issuedAt:            time.Now(),
+			expiresAt:           time.Now().Add(1 * time.Hour),
+			expectedMinDuration: 29 * time.Minute,
+			expectedMaxDuration: 30 * time.Minute,
+		},
+		{
+			name:                "token past half-life",
+			issuedAt:            time.Now().Add(-31 * time.Minute),
+			expiresAt:           time.Now().Add(29 * time.Minute),
+			expectedMinDuration: 0,
+			expectedMaxDuration: 0,
+		},
+		{
+			name:                "token exactly at half-life",
+			issuedAt:            time.Now().Add(-30 * time.Minute),
+			expiresAt:           time.Now().Add(30 * time.Minute),
+			expectedMinDuration: 0,
+			expectedMaxDuration: 1 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			claims := &JWTClaims{
+				IAT: tt.issuedAt.Unix(),
+				Exp: tt.expiresAt.Unix(),
+			}
+
+			duration := claims.TimeUntilHalfLife()
+
+			if duration < tt.expectedMinDuration || duration > tt.expectedMaxDuration {
+				t.Errorf("expected TimeUntilHalfLife() between %v and %v, got %v",
+					tt.expectedMinDuration, tt.expectedMaxDuration, duration)
+			}
+		})
+	}
+}
+
+func TestJWTClaimsIsAtHalfLife(t *testing.T) {
+	tests := []struct {
+		name     string
+		issuedAt time.Time
+		expiresAt time.Time
+		expected bool
+	}{
+		{
+			name:     "new token",
+			issuedAt: time.Now(),
+			expiresAt: time.Now().Add(1 * time.Hour),
+			expected: false,
+		},
+		{
+			name:     "token past half-life",
+			issuedAt: time.Now().Add(-31 * time.Minute),
+			expiresAt: time.Now().Add(29 * time.Minute),
+			expected: true,
+		},
+		{
+			name:     "token exactly at half-life",
+			issuedAt: time.Now().Add(-30 * time.Minute),
+			expiresAt: time.Now().Add(30 * time.Minute),
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			claims := &JWTClaims{
+				IAT: tt.issuedAt.Unix(),
+				Exp: tt.expiresAt.Unix(),
+			}
+
+			result := claims.IsAtHalfLife()
+
+			if result != tt.expected {
+				t.Errorf("expected IsAtHalfLife() = %v, got %v", tt.expected, result)
+			}
+		})
 	}
 }

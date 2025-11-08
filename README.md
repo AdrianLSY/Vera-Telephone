@@ -15,7 +15,7 @@ Telephone is a sidecar process that maintains a persistent WebSocket connection 
 
 - **WebSocket Tunnel** - Persistent connection with automatic reconnection
 - **Phoenix Channels Protocol** - Full implementation of Elixir Phoenix channels
-- **JWT Authentication** - Token-based auth with automatic refresh
+- **JWT Authentication** - Token-based auth with automatic refresh at half-life
 - **Graceful Shutdown** - Waits for active requests before stopping
 - **Chunked Responses** - Automatic chunking for large responses (>1MB)
 - **Request Timeout** - Configurable per-request timeouts
@@ -59,7 +59,6 @@ BACKEND_HOST=localhost
 BACKEND_PORT=8080
 CONNECT_TIMEOUT=10s
 REQUEST_TIMEOUT=30s
-TOKEN_REFRESH_INTERVAL=25m
 TOKEN_DB_PATH=./telephone.db
 ```
 
@@ -121,7 +120,7 @@ Telephone **automatically saves refreshed tokens** to an encrypted SQLite databa
 ### How It Works
 
 1. **Initial Start**: Uses token from environment variable
-2. **Token Refresh**: Every 25 minutes, requests new token from Plugboard
+2. **Token Refresh**: Automatically refreshes token at half of its lifespan (e.g., for a 1-hour token, refreshes after 30 minutes)
 3. **Encryption**: Encrypts token with AES-256-GCM using `SECRET_KEY_BASE`
 4. **Storage**: Saves encrypted token to SQLite database
 5. **On Restart**: Loads most recent valid token from database
@@ -206,7 +205,6 @@ services:
 | `BACKEND_PORT` | Backend port | `8080` | ❌ |
 | `CONNECT_TIMEOUT` | Connection timeout | `10s` | ❌ |
 | `REQUEST_TIMEOUT` | Request timeout | `30s` | ❌ |
-| `TOKEN_REFRESH_INTERVAL` | Token refresh interval | `25m` | ❌ |
 | `TOKEN_DB_PATH` | Path to SQLite token database | `./telephone.db` | ❌ |
 
 ---
@@ -217,7 +215,7 @@ services:
 - WebSocket connection with automatic reconnection
 - Exponential backoff (1s → 30s)
 - JWT token parsing and validation
-- Automatic token refresh (every 25 min)
+- Automatic token refresh at half-life (dynamic based on token lifespan)
 - **Encrypted token persistence** - Refreshed tokens survive restarts
   - AES-256-GCM encryption
   - SQLite database storage
@@ -278,7 +276,7 @@ Telephone/
 │   ├── channels/       # Phoenix Channels protocol
 │   ├── config/         # Configuration management
 │   └── proxy/          # Main proxy engine
-├── test-backend/       # Test HTTP server
+├── test_server/        # Test HTTP server
 ├── Dockerfile          # Docker build
 ├── Makefile           # Build automation
 └── README.md          # This file
@@ -302,7 +300,7 @@ go test ./...
 Start the test backend:
 
 ```bash
-cd test-backend
+cd test_server
 go run server.go
 ```
 

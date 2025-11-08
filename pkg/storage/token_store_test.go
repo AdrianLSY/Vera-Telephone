@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -330,33 +329,43 @@ func TestTokenStoreCleanupExpiredTokens(t *testing.T) {
 
 	now := time.Now()
 
-	// Save valid token
+	// Save expired tokens first (by directly inserting into DB)
+	expiredToken1 := "expired-token-1"
+	expiredToken2 := "expired-token-2"
+
+	// Manually insert expired tokens to bypass SaveToken validation
+	store.mu.Lock()
+	encrypted1, err := store.encrypt(expiredToken1)
+	if err != nil {
+		store.mu.Unlock()
+		t.Fatalf("failed to encrypt expired token 1: %v", err)
+	}
+	encrypted2, err := store.encrypt(expiredToken2)
+	if err != nil {
+		store.mu.Unlock()
+		t.Fatalf("failed to encrypt expired token 2: %v", err)
+	}
+
+	// Insert expired tokens
+	_, err = store.db.Exec("INSERT INTO tokens (encrypted_token, expires_at, updated_at) VALUES (?, ?, ?)",
+		encrypted1, now.Add(-2*time.Hour), now.Add(-2*time.Hour))
+	if err != nil {
+		store.mu.Unlock()
+		t.Fatalf("failed to insert expired token 1: %v", err)
+	}
+	_, err = store.db.Exec("INSERT INTO tokens (encrypted_token, expires_at, updated_at) VALUES (?, ?, ?)",
+		encrypted2, now.Add(-1*time.Hour), now.Add(-1*time.Hour))
+	if err != nil {
+		store.mu.Unlock()
+		t.Fatalf("failed to insert expired token 2: %v", err)
+	}
+	store.mu.Unlock()
+
+	// Now save a valid token (this will be the most recent)
 	validToken := "valid-token"
 	err = store.SaveToken(validToken, now.Add(1*time.Hour))
 	if err != nil {
 		t.Fatalf("failed to save valid token: %v", err)
-	}
-
-	// Save expired tokens by bypassing validation
-	expiredToken1 := "expired-token-1"
-	expiredToken2 := "expired-token-2"
-
-	// Save with future expiry first
-	err = store.SaveToken(expiredToken1, now.Add(1*time.Hour))
-	if err != nil {
-		t.Fatalf("failed to save expired token 1: %v", err)
-	}
-	err = store.SaveToken(expiredToken2, now.Add(1*time.Hour))
-	if err != nil {
-		t.Fatalf("failed to save expired token 2: %v", err)
-	}
-
-	// Update them to be expired
-	store.mu.Lock()
-	_, err = store.db.Exec("UPDATE tokens SET expires_at = ? WHERE encrypted_token != (SELECT encrypted_token FROM tokens WHERE encrypted_token = (SELECT encrypted_token FROM tokens ORDER BY updated_at DESC LIMIT 1))", now.Add(-1*time.Hour))
-	store.mu.Unlock()
-	if err != nil {
-		t.Fatalf("failed to expire tokens: %v", err)
 	}
 
 	// Get stats before cleanup
@@ -367,6 +376,14 @@ func TestTokenStoreCleanupExpiredTokens(t *testing.T) {
 
 	if total != 3 {
 		t.Errorf("expected 3 total tokens, got %d", total)
+	}
+
+	if expired != 2 {
+		t.Errorf("expected 2 expired tokens before cleanup, got %d", expired)
+	}
+
+	if valid != 1 {
+		t.Errorf("expected 1 valid token before cleanup, got %d", valid)
 	}
 
 	// Cleanup expired tokens
@@ -387,6 +404,10 @@ func TestTokenStoreCleanupExpiredTokens(t *testing.T) {
 
 	if valid != 1 {
 		t.Errorf("expected 1 valid token after cleanup, got %d", valid)
+	}
+
+	if total != 1 {
+		t.Errorf("expected 1 total token after cleanup, got %d", total)
 	}
 
 	// Verify we can still load the valid token

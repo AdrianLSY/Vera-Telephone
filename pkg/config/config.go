@@ -18,10 +18,9 @@ type Config struct {
 	BackendPort int
 
 	// Timeouts and intervals
-	ConnectTimeout       time.Duration
-	RequestTimeout       time.Duration
-	HeartbeatInterval    time.Duration
-	TokenRefreshInterval time.Duration
+	ConnectTimeout    time.Duration
+	RequestTimeout    time.Duration
+	HeartbeatInterval time.Duration
 
 	// Reconnection settings
 	InitialBackoff time.Duration
@@ -37,18 +36,17 @@ type Config struct {
 func LoadFromEnv() (*Config, error) {
 	cfg := &Config{
 		// Defaults
-		PlugboardURL:         "ws://localhost:4000/telephone/websocket",
-		BackendHost:          "localhost",
-		BackendPort:          8080,
-		ConnectTimeout:       10 * time.Second,
-		RequestTimeout:       30 * time.Second,
-		HeartbeatInterval:    30 * time.Second,
-		TokenRefreshInterval: 25 * time.Minute, // Refresh before 30min expiry
-		InitialBackoff:       1 * time.Second,
-		MaxBackoff:           30 * time.Second,
-		MaxRetries:           -1, // Infinite retries
-		TokenDBPath:          "./telephone.db",
-		SecretKeyBase:        "", // Must be provided
+		PlugboardURL:      "ws://localhost:4000/telephone/websocket",
+		BackendHost:       "localhost",
+		BackendPort:       8080,
+		ConnectTimeout:    10 * time.Second,
+		RequestTimeout:    30 * time.Second,
+		HeartbeatInterval: 30 * time.Second,
+		InitialBackoff:    1 * time.Second,
+		MaxBackoff:        30 * time.Second,
+		MaxRetries:        -1, // Infinite retries
+		TokenDBPath:       "./telephone.db",
+		SecretKeyBase:     "", // Must be provided
 	}
 
 	// Optional: Token (can be loaded from database if not provided)
@@ -90,14 +88,6 @@ func LoadFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("invalid REQUEST_TIMEOUT: %w", err)
 		}
 		cfg.RequestTimeout = timeout
-	}
-
-	if intervalStr := os.Getenv("TOKEN_REFRESH_INTERVAL"); intervalStr != "" {
-		interval, err := time.ParseDuration(intervalStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid TOKEN_REFRESH_INTERVAL: %w", err)
-		}
-		cfg.TokenRefreshInterval = interval
 	}
 
 	if secretKey := os.Getenv("SECRET_KEY_BASE"); secretKey != "" {
