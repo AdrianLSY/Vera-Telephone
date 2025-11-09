@@ -1,0 +1,172 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+env:
+  GO_VERSION: "1.23"
+  DOCKER_IMAGE: verastack/telephone
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    env:
+      DOCKER_ENABLED: ${{ secrets.DOCKER_USERNAME != '' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc gcc-aarch64-linux-gnu sqlite3 libsqlite3-dev
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Release version: ${VERSION}"
+
+      - name: Run tests
+        env:
+          CGO_ENABLED: 1
+        run: go test -v -race ./...
+
+      - name: Build binaries
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p release
+
+          # Linux AMD64
+          echo "Building Linux AMD64..."
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+            -ldflags="-w -s -X main.version=${VERSION}" \
+            -o release/telephone-linux-amd64 \
+            ./cmd/telephone
+
+          # Linux ARM64
+          echo "Building Linux ARM64..."
+          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build \
+            -ldflags="-w -s -X main.version=${VERSION}" \
+            -o release/telephone-linux-arm64 \
+            ./cmd/telephone
+
+          # macOS AMD64
+          echo "Building macOS AMD64..."
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+            -ldflags="-w -s -X main.version=${VERSION}" \
+            -o release/telephone-darwin-amd64 \
+            ./cmd/telephone
+
+          # macOS ARM64
+          echo "Building macOS ARM64..."
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+            -ldflags="-w -s -X main.version=${VERSION}" \
+            -o release/telephone-darwin-arm64 \
+            ./cmd/telephone
+
+          # Windows AMD64
+          echo "Building Windows AMD64..."
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build \
+            -ldflags="-w -s -X main.version=${VERSION}" \
+            -o release/telephone-windows-amd64.exe \
+            ./cmd/telephone
+
+      - name: Create checksums
+        run: |
+          cd release
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create archives
+        run: |
+          cd release
+          tar -czf telephone-${{ steps.version.outputs.version }}-linux-amd64.tar.gz telephone-linux-amd64
+          tar -czf telephone-${{ steps.version.outputs.version }}-linux-arm64.tar.gz telephone-linux-arm64
+          tar -czf telephone-${{ steps.version.outputs.version }}-darwin-amd64.tar.gz telephone-darwin-amd64
+          tar -czf telephone-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz telephone-darwin-arm64
+          zip telephone-${{ steps.version.outputs.version }}-windows-amd64.zip telephone-windows-amd64.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            release/*.tar.gz
+            release/*.zip
+            release/checksums.txt
+          body: |
+            ## Telephone ${{ steps.version.outputs.version }}
+
+            ### Installation
+
+            Download the appropriate binary for your platform below.
+
+            **Linux:**
+            ```bash
+            # AMD64
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/telephone-${{ steps.version.outputs.version }}-linux-amd64.tar.gz
+            tar -xzf telephone-${{ steps.version.outputs.version }}-linux-amd64.tar.gz
+            sudo mv telephone-linux-amd64 /usr/local/bin/telephone
+            ```
+
+            **macOS:**
+            ```bash
+            # Apple Silicon (ARM64)
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/telephone-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz
+            tar -xzf telephone-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz
+            sudo mv telephone-darwin-arm64 /usr/local/bin/telephone
+            ```
+
+            **Docker:**
+            ```bash
+            docker pull ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.version }}
+            ```
+
+            ### Verify Checksums
+            ```bash
+            sha256sum -c checksums.txt
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: env.DOCKER_ENABLED == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: env.DOCKER_ENABLED == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker image
+        if: env.DOCKER_ENABLED == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ env.DOCKER_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
