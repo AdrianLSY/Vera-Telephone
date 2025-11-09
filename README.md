@@ -1,4 +1,4 @@
-# Telephone
+# Vera Telephone
 
 **A lightweight WebSocket-based reverse proxy sidecar for the Vera Reverse Proxy**
 
