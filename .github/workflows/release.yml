@@ -3,11 +3,11 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
   workflow_dispatch:
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: "1.23"
   DOCKER_IMAGE: verastack/telephone
 
 jobs:
@@ -17,6 +17,8 @@ jobs:
     permissions:
       contents: write
       packages: write
+    env:
+      DOCKER_ENABLED: ${{ secrets.DOCKER_USERNAME != '' }}
 
     steps:
       - name: Checkout code
@@ -146,21 +148,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
+        if: env.DOCKER_ENABLED == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
-        if: secrets.DOCKER_USERNAME != ''
+        if: env.DOCKER_ENABLED == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push Docker image
+        if: env.DOCKER_ENABLED == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ secrets.DOCKER_USERNAME != '' }}
+          push: true
           tags: |
             ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.version }}
             ${{ env.DOCKER_IMAGE }}:latest
