@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Install build dependencies (CGO required for sqlite3)
 RUN apk add --no-cache git ca-certificates gcc musl-dev sqlite-dev
@@ -20,7 +20,7 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
     ./cmd/telephone
 
 # Runtime stage
-FROM alpine:3.19
+FROM alpine:3.22
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata sqlite-libs

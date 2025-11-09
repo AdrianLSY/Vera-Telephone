@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -106,7 +106,7 @@ jobs:
           zip telephone-${{ steps.version.outputs.version }}-windows-amd64.zip telephone-windows-amd64.exe
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             release/*.tar.gz
@@ -160,7 +160,7 @@ jobs:
 
       - name: Build and push Docker image
         if: env.DOCKER_ENABLED == 'true'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
