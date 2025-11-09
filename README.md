@@ -4,9 +4,7 @@
 
 [![Go Version](https://img.shields.io/badge/go-1.23-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![CI](https://github.com/verastack/telephone/actions/workflows/ci.yml/badge.svg)](https://github.com/verastack/telephone/actions/workflows/ci.yml)
-[![Lint](https://github.com/verastack/telephone/actions/workflows/lint.yml/badge.svg)](https://github.com/verastack/telephone/actions/workflows/lint.yml)
-[![Security](https://github.com/verastack/telephone/actions/workflows/security.yml/badge.svg)](https://github.com/verastack/telephone/actions/workflows/security.yml)
+[![CI](https://github.com/AdrianLSY/Vera-Telephone/actions/workflows/ci.yml/badge.svg)](https://github.com/AdrianLSY/Vera-Telephone/actions/workflows/ci.yml)
 
 ---
 
