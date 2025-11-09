@@ -177,11 +177,28 @@ make docker-build
 
 ```bash
 docker run --rm -it \
-  -e token=$TELEPHONE_TOKEN \
+  -e TELEPHONE_TOKEN=$TELEPHONE_TOKEN \
+  -e SECRET_KEY_BASE=$SECRET_KEY_BASE \
+  -e PLUGBOARD_URL=ws://plugboard:4000/telephone/websocket \
   -e BACKEND_HOST=your-app \
   -e BACKEND_PORT=8080 \
+  -e BACKEND_SCHEME=http \
+  -e CONNECT_TIMEOUT=10s \
+  -e REQUEST_TIMEOUT=30s \
+  -e HEARTBEAT_INTERVAL=30s \
+  -e CONNECTION_MONITOR_INTERVAL=5s \
+  -e INITIAL_BACKOFF=1s \
+  -e MAX_BACKOFF=30s \
+  -e MAX_RETRIES=-1 \
+  -e TOKEN_DB_PATH=/data/telephone.db \
+  -e MAX_RESPONSE_SIZE=104857600 \
+  -e CHUNK_SIZE=1048576 \
+  -e DB_TIMEOUT=10s \
+  -v telephone-data:/data \
   verastack/telephone:latest
 ```
+
+**Note**: The volume mount (`-v telephone-data:/data`) is recommended to persist the token database across container restarts.
 ---
 
 ## Configuration Reference
