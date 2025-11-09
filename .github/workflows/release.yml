@@ -160,7 +160,7 @@ jobs:
 
       - name: Build and push Docker image
         if: env.DOCKER_ENABLED == 'true'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
