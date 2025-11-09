@@ -46,22 +46,37 @@ go build -o bin/telephone ./cmd/telephone
 
 ### Configuration
 
-Create a `.env` file:
+**All configuration must be explicitly set - no defaults are used.**
+
+Create a `.env` file with all required variables:
 
 ```bash
+# Authentication (Required)
 TELEPHONE_TOKEN={Generate one from plugboard}
 SECRET_KEY_BASE={Generate one via `openssl rand -hex 32`}
+
+# Connection (Required)
 PLUGBOARD_URL=ws://localhost:4000/telephone/websocket
 BACKEND_HOST=localhost
 BACKEND_PORT=8080
+BACKEND_SCHEME=http
+
+# Timeouts (Required)
 CONNECT_TIMEOUT=10s
 REQUEST_TIMEOUT=30s
 HEARTBEAT_INTERVAL=30s
 CONNECTION_MONITOR_INTERVAL=5s
+
+# Reconnection (Required)
 INITIAL_BACKOFF=1s
 MAX_BACKOFF=30s
 MAX_RETRIES=-1
+
+# Storage & Limits (Required)
 TOKEN_DB_PATH=./telephone.db
+MAX_RESPONSE_SIZE=104857600
+CHUNK_SIZE=1048576
+DB_TIMEOUT=10s
 ```
 
 ### Run
@@ -136,6 +151,7 @@ Telephone **automatically saves refreshed tokens** to an encrypted SQLite databa
 - Uses industry-standard AES-256-GCM authenticated encryption
 - Database file (`telephone.db`) contains only encrypted data
 - **Keep your `SECRET_KEY_BASE` secret!**
+- Tokens are sent via HTTP headers (not URL query parameters) to prevent log exposure
 
 ### Database Location
 
@@ -171,21 +187,27 @@ docker run --rm -it \
 
 ### Environment Variables
 
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `token` or `TELEPHONE_TOKEN` | JWT token from Plugboard | - | ✅ (or loaded from DB) |
-| `SECRET_KEY_BASE` | Secret key for encrypting tokens (64 char hex) | - | ✅ |
-| `CONNECT_TIMEOUT` | Connection timeout | - | ✅ |
-| `REQUEST_TIMEOUT` | Request timeout | - | ✅ |
-| `HEARTBEAT_INTERVAL` | WebSocket heartbeat interval | - | ✅ |
-| `CONNECTION_MONITOR_INTERVAL` | How often to check WebSocket connection health and trigger reconnection if needed | - | ✅ |
-| `INITIAL_BACKOFF` | Initial reconnection backoff | - | ✅ |
-| `MAX_BACKOFF` | Maximum reconnection backoff | - | ✅ |
-| `MAX_RETRIES` | Max reconnection retries (-1 = infinite) | - | ✅ |
-| `PLUGBOARD_URL` | WebSocket URL to Plugboard | `ws://localhost:4000/telephone/websocket` | ❌ |
-| `BACKEND_HOST` | Backend hostname | `localhost` | ❌ |
-| `BACKEND_PORT` | Backend port | `8080` | ❌ |
-| `TOKEN_DB_PATH` | Path to SQLite token database | `./telephone.db` | ❌ |
+**All configuration variables are required - no defaults are provided.**
+
+| Variable                      | Description                                    | Example Value                             |
+|-------------------------------|------------------------------------------------|-------------------------------------------|
+| `TELEPHONE_TOKEN`             | JWT token from Plugboard                       | `eyJhbGci...`                             |
+| `SECRET_KEY_BASE`             | Secret key for encrypting tokens (64 char hex) | `6a5c5a634bc0c4c7...`                     |
+| `PLUGBOARD_URL`               | WebSocket URL to Plugboard                     | `ws://localhost:4000/telephone/websocket` |
+| `BACKEND_HOST`                | Backend hostname                               | `localhost`                               |
+| `BACKEND_PORT`                | Backend port                                   | `8080`                                    |
+| `BACKEND_SCHEME`              | Backend URL scheme (http or https)             | `http`                                    |
+| `CONNECT_TIMEOUT`             | Connection timeout                             | `10s`                                     |
+| `REQUEST_TIMEOUT`             | Request timeout                                | `30s`                                     |
+| `HEARTBEAT_INTERVAL`          | WebSocket heartbeat interval                   | `30s`                                     |
+| `CONNECTION_MONITOR_INTERVAL` | Connection health check interval               | `5s`                                      |
+| `INITIAL_BACKOFF`             | Initial reconnection backoff                   | `1s`                                      |
+| `MAX_BACKOFF`                 | Maximum reconnection backoff                   | `30s`                                     |
+| `MAX_RETRIES`                 | Max reconnection retries (-1 for infinite)     | `100`                                     |
+| `TOKEN_DB_PATH`               | Path to SQLite token database                  | `./telephone.db`                          |
+| `MAX_RESPONSE_SIZE`           | Maximum response size in bytes                 | `104857600`                               |
+| `CHUNK_SIZE`                  | Chunk size for streaming responses             | `1048576`                                 |
+| `DB_TIMEOUT`                  | Database operation timeout                     | `10s`                                     |
 
 ---
 
@@ -319,10 +341,13 @@ Messages are JSON arrays: `[join_ref, ref, topic, event, payload]`
 
 ### Operational Limits
 
-- **Max Response Size**: 100 MB (requests exceeding this will fail)
-- **Chunk Size**: 1 MB per chunk (for responses >1 MB)
-- **Connection Monitor**: Configurable via `CONNECTION_MONITOR_INTERVAL` (e.g., 5s)
-- **Connection Retries**: Infinite - will keep retrying to reconnect with exponential backoff
+- **Max Response Size**: Configurable via `MAX_RESPONSE_SIZE` (default: 100 MB)
+- **Chunk Size**: Configurable via `CHUNK_SIZE` (default: 1 MB) - responses larger than this are automatically chunked
+- **Connection Monitor**: Configurable via `CONNECTION_MONITOR_INTERVAL` (default: 5s)
+- **Connection Retries**: Configurable via `MAX_RETRIES` (default: 100)
+- **Heartbeat Timeout**: 3x `HEARTBEAT_INTERVAL` (connection considered dead if no heartbeat ack received)
+- **Database Timeout**: Configurable via `DB_TIMEOUT` (default: 10s)
+- **Backend Protocol**: Supports both HTTP and HTTPS backends via `BACKEND_SCHEME`
 
 ## License
 

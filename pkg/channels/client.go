@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,7 +21,7 @@ type Client struct {
 	urlMu    sync.RWMutex // Protects URL updates
 
 	// Message handling
-	handlers map[string]MessageHandler
+	handlers    map[string]MessageHandler
 	handlerLock sync.RWMutex
 
 	// Request tracking for request/response pattern
@@ -89,7 +91,12 @@ func (c *Client) Connect() error {
 
 	// Get current URL (may have been updated for reconnection)
 	currentURL := c.GetURL()
-	conn, _, err := websocket.DefaultDialer.Dial(currentURL, nil)
+
+	// Extract token from URL if present and add as header instead
+	// This is more secure than query parameters which get logged
+	headers := c.extractAndBuildHeaders(currentURL)
+
+	conn, _, err := websocket.DefaultDialer.Dial(currentURL, headers)
 	if err != nil {
 		return fmt.Errorf("failed to connect to %s: %w", c.url, err)
 	}
@@ -104,7 +111,8 @@ func (c *Client) Connect() error {
 	c.wg.Add(1)
 	go c.readLoop()
 
-	log.Printf("Connected to %s", currentURL)
+	// Use clean URL for logging to avoid token leakage
+	log.Printf("Connected to %s", c.GetCleanURL())
 	return nil
 }
 
@@ -115,12 +123,14 @@ func (c *Client) Disconnect() error {
 		c.readCancel()
 	}
 
+	// Hold lock during entire disconnect to prevent race with readLoop cleanup
 	c.connLock.Lock()
+	defer c.connLock.Unlock()
+
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
 	}
-	c.connLock.Unlock()
 
 	c.connected.Store(false)
 
@@ -293,4 +303,46 @@ func (c *Client) handleMessage(msg *Message) {
 	} else {
 		log.Printf("No handler for event: %s", msg.Event)
 	}
+}
+
+// extractAndBuildHeaders extracts token from URL query params and builds HTTP headers
+// This prevents token leakage in logs by using headers instead of query parameters
+func (c *Client) extractAndBuildHeaders(wsURL string) http.Header {
+	headers := http.Header{}
+
+	parsedURL, err := url.Parse(wsURL)
+	if err != nil {
+		// If URL parsing fails, return empty headers
+		return headers
+	}
+
+	// Extract token from query parameters
+	queryParams := parsedURL.Query()
+	if token := queryParams.Get("token"); token != "" {
+		// Add token as Authorization header instead of query param
+		headers.Set("Authorization", "Bearer "+token)
+	}
+
+	// Add vsn if present
+	if vsn := queryParams.Get("vsn"); vsn != "" {
+		headers.Set("X-Phoenix-VSN", vsn)
+	}
+
+	return headers
+}
+
+// GetCleanURL returns the WebSocket URL without query parameters containing sensitive data
+// Used for logging purposes to avoid token leakage
+func (c *Client) GetCleanURL() string {
+	c.urlMu.RLock()
+	defer c.urlMu.RUnlock()
+
+	parsedURL, err := url.Parse(c.url)
+	if err != nil {
+		return c.url
+	}
+
+	// Remove query parameters for clean logging
+	parsedURL.RawQuery = ""
+	return parsedURL.String()
 }

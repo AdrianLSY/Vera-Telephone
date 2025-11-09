@@ -6,6 +6,8 @@ import (
 	"math"
 	"math/rand"
 	"time"
+
+	"github.com/verastack/telephone/pkg/auth"
 )
 
 // reconnect handles reconnection logic with exponential backoff
@@ -37,16 +39,42 @@ func (t *Telephone) reconnect() error {
 
 		attempt++
 
-		// Log which token we're using for debugging
-		currentToken := t.getCurrentToken()
-		currentURL := t.client.GetURL()
 		log.Printf("Reconnection attempt %d (backoff: %v)", attempt, backoff)
-		log.Printf("Current token (last 20 chars): ...%s", currentToken[len(currentToken)-20:])
-		log.Printf("Current WebSocket URL (token portion): ...%s", currentURL[len(currentURL)-20:])
 
-		// Try to connect
+		// Try to connect with current token
 		if err := t.client.Connect(); err != nil {
-			log.Printf("Reconnection failed: %v", err)
+			log.Printf("Reconnection failed with current token: %v", err)
+
+			// If we have an original token that differs from current, try falling back to it
+			// This handles server restarts where refreshed tokens may not be recognized
+			currentToken := t.getCurrentToken()
+			if t.originalToken != "" && t.originalToken != currentToken {
+				log.Printf("Attempting reconnection with original token...")
+
+				// Temporarily update URL with original token
+				originalURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", t.config.PlugboardURL, t.originalToken)
+				t.client.UpdateURL(originalURL)
+
+				if err := t.client.Connect(); err != nil {
+					log.Printf("Reconnection failed with original token: %v", err)
+
+					// Restore current token URL
+					currentURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", t.config.PlugboardURL, currentToken)
+					t.client.UpdateURL(currentURL)
+				} else {
+					// Successfully connected with original token
+					// Update current token to original since that's what worked
+					log.Printf("Successfully reconnected with original token")
+
+					// Parse original token to get claims
+					if claims, err := auth.ParseJWTUnsafe(t.originalToken); err == nil {
+						t.updateToken(t.originalToken, claims)
+					}
+
+					// Continue to channel join below
+					goto channelJoin
+				}
+			}
 
 			// Check if we've exceeded max retries (if configured)
 			if t.config.MaxRetries > 0 && attempt >= t.config.MaxRetries {
@@ -65,6 +93,8 @@ func (t *Telephone) reconnect() error {
 			}
 			continue
 		}
+
+	channelJoin:
 
 		// Successfully reconnected - try to rejoin channel
 		log.Printf("WebSocket reconnected, attempting to rejoin channel...")
@@ -111,6 +141,7 @@ func (t *Telephone) monitorConnection() {
 		case <-t.ctx.Done():
 			return
 		case <-ticker.C:
+			// Check if connection is lost
 			if !t.client.IsConnected() {
 				consecutiveFailures++
 				log.Printf("Connection lost (failure %d), attempting to reconnect...",
@@ -131,9 +162,34 @@ func (t *Telephone) monitorConnection() {
 				consecutiveFailures = 0
 				log.Printf("Connection restored successfully")
 			} else {
-				// Connection is healthy
-				if consecutiveFailures > 0 {
-					consecutiveFailures = 0
+				// Connection appears healthy, but check heartbeat timeout
+				t.heartbeatLock.RLock()
+				lastHB := t.lastHeartbeat
+				t.heartbeatLock.RUnlock()
+
+				// If we haven't received a heartbeat ack in 3x the heartbeat interval, consider connection dead
+				heartbeatTimeout := t.config.HeartbeatInterval * 3
+				if !lastHB.IsZero() && time.Since(lastHB) > heartbeatTimeout {
+					log.Printf("Heartbeat timeout detected (last: %v ago, threshold: %v), reconnecting...",
+						time.Since(lastHB), heartbeatTimeout)
+
+					// Force disconnect and reconnect
+					t.client.Disconnect()
+
+					if err := t.reconnect(); err != nil {
+						if err.Error() == "reconnection already in progress" {
+							continue
+						}
+						log.Printf("Reconnection after heartbeat timeout failed: %v", err)
+						continue
+					}
+
+					log.Printf("Connection restored after heartbeat timeout")
+				} else {
+					// Connection is healthy
+					if consecutiveFailures > 0 {
+						consecutiveFailures = 0
+					}
 				}
 			}
 		}

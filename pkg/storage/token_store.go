@@ -22,6 +22,7 @@ type TokenStore struct {
 	db        *sql.DB
 	secretKey []byte
 	mu        sync.Mutex
+	timeout   time.Duration // Database operation timeout
 }
 
 // TokenRecord represents a stored token
@@ -33,13 +34,19 @@ type TokenRecord struct {
 }
 
 // NewTokenStore creates a new encrypted token store
-func NewTokenStore(dbPath string, secretKeyBase string) (*TokenStore, error) {
+func NewTokenStore(dbPath string, secretKeyBase string, timeout time.Duration) (*TokenStore, error) {
 	if secretKeyBase == "" {
 		return nil, fmt.Errorf("secret key base cannot be empty")
 	}
 
-	// Open SQLite database
-	db, err := sql.Open("sqlite3", dbPath)
+	if timeout <= 0 {
+		timeout = 10 * time.Second // Default timeout
+	}
+
+	// Open SQLite database with busy timeout to handle concurrent access
+	// The busy_timeout pragma helps prevent "database is locked" errors
+	dbPathWithParams := fmt.Sprintf("%s?_busy_timeout=%d", dbPath, int(timeout.Milliseconds()))
+	db, err := sql.Open("sqlite3", dbPathWithParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -54,14 +61,15 @@ func NewTokenStore(dbPath string, secretKeyBase string) (*TokenStore, error) {
 	secretKey := pbkdf2.Key(
 		[]byte(secretKeyBase),
 		[]byte("telephone-token-encryption-v1"), // salt
-		100000,                                   // iterations
-		32,                                       // key length (AES-256)
+		100000,                                  // iterations
+		32,                                      // key length (AES-256)
 		sha256.New,
 	)
 
 	store := &TokenStore{
 		db:        db,
 		secretKey: secretKey,
+		timeout:   timeout,
 	}
 
 	// Initialize database schema
@@ -75,7 +83,7 @@ func NewTokenStore(dbPath string, secretKeyBase string) (*TokenStore, error) {
 
 // initSchema creates the tokens table if it doesn't exist
 func (ts *TokenStore) initSchema() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), ts.timeout)
 	defer cancel()
 
 	query := `
@@ -173,7 +181,7 @@ func (ts *TokenStore) SaveToken(token string, expiresAt time.Time) error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), ts.timeout)
 	defer cancel()
 
 	// Start transaction
@@ -213,7 +221,7 @@ func (ts *TokenStore) LoadToken() (string, time.Time, error) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), ts.timeout)
 	defer cancel()
 
 	query := `
@@ -249,7 +257,7 @@ func (ts *TokenStore) CleanupExpiredTokens() error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), ts.timeout)
 	defer cancel()
 
 	// Start transaction
@@ -290,7 +298,7 @@ func (ts *TokenStore) Stats() (total int, valid int, expired int, err error) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), ts.timeout)
 	defer cancel()
 
 	// Total tokens

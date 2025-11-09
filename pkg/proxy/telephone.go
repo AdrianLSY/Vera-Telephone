@@ -84,8 +84,8 @@ type Telephone struct {
 
 // New creates a new Telephone instance
 func New(cfg *config.Config) (*Telephone, error) {
-	// Initialize token store
-	tokenStore, err := storage.NewTokenStore(cfg.TokenDBPath, cfg.SecretKeyBase)
+	// Initialize token store with configurable timeout
+	tokenStore, err := storage.NewTokenStore(cfg.TokenDBPath, cfg.SecretKeyBase, cfg.DBTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize token store: %w", err)
 	}
@@ -445,6 +445,10 @@ func validateProxyRequest(payload map[string]interface{}) error {
 	if !ok || requestID == "" {
 		return fmt.Errorf("missing or invalid request_id")
 	}
+	// Check length first to prevent regex DoS
+	if len(requestID) > 40 {
+		return fmt.Errorf("request_id too long (max 40 characters)")
+	}
 	if !uuidRegex.MatchString(requestID) {
 		return fmt.Errorf("request_id must be a valid UUID")
 	}
@@ -576,10 +580,10 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 	defer resp.Body.Close()
 
 	// Read response body with streaming for large responses
-	const maxChunkSize = 1024 * 1024 // 1MB
+	chunkSize := t.config.ChunkSize
 	var chunks []string
 	var totalSize int
-	buf := make([]byte, maxChunkSize)
+	buf := make([]byte, chunkSize)
 
 	for {
 		n, err := resp.Body.Read(buf)
@@ -595,8 +599,8 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 		}
 
 		// Prevent excessive memory usage
-		if totalSize > 100*1024*1024 { // 100MB limit
-			return nil, fmt.Errorf("response body too large: %d bytes", totalSize)
+		if int64(totalSize) > t.config.MaxResponseSize {
+			return nil, fmt.Errorf("response body too large: %d bytes (max: %d bytes)", totalSize, t.config.MaxResponseSize)
 		}
 	}
 

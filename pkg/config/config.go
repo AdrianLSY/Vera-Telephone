@@ -14,8 +14,9 @@ type Config struct {
 	Token        string
 
 	// Backend settings
-	BackendHost string
-	BackendPort int
+	BackendHost   string
+	BackendPort   int
+	BackendScheme string // http or https
 
 	// Timeouts and intervals
 	ConnectTimeout            time.Duration
@@ -31,17 +32,17 @@ type Config struct {
 	// Token persistence
 	SecretKeyBase string
 	TokenDBPath   string
+
+	// Proxy limits
+	MaxResponseSize int64 // Maximum response size in bytes
+	ChunkSize       int   // Chunk size for large responses
+	DBTimeout       time.Duration
 }
 
 // LoadFromEnv loads configuration from environment variables
+// All configuration must be explicitly set - no defaults are used
 func LoadFromEnv() (*Config, error) {
-	cfg := &Config{
-		// Defaults
-		PlugboardURL: "ws://localhost:4000/telephone/websocket",
-		BackendHost:  "localhost",
-		BackendPort:  8080,
-		TokenDBPath:  "./telephone.db",
-	}
+	cfg := &Config{}
 
 	// Optional: Token (can be loaded from database if not provided)
 	cfg.Token = os.Getenv("TELEPHONE_TOKEN")
@@ -51,21 +52,36 @@ func LoadFromEnv() (*Config, error) {
 		// Note: If still empty, proxy.New() will try to load from database
 	}
 
-	// Optional overrides
-	if url := os.Getenv("PLUGBOARD_URL"); url != "" {
-		cfg.PlugboardURL = url
+	// Required: Plugboard URL
+	cfg.PlugboardURL = os.Getenv("PLUGBOARD_URL")
+	if cfg.PlugboardURL == "" {
+		return nil, fmt.Errorf("PLUGBOARD_URL environment variable is required")
 	}
 
-	if host := os.Getenv("BACKEND_HOST"); host != "" {
-		cfg.BackendHost = host
+	// Required: Backend Host
+	cfg.BackendHost = os.Getenv("BACKEND_HOST")
+	if cfg.BackendHost == "" {
+		return nil, fmt.Errorf("BACKEND_HOST environment variable is required")
 	}
 
-	if portStr := os.Getenv("BACKEND_PORT"); portStr != "" {
-		port, err := strconv.Atoi(portStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid BACKEND_PORT: %w", err)
-		}
-		cfg.BackendPort = port
+	// Required: Backend Port
+	portStr := os.Getenv("BACKEND_PORT")
+	if portStr == "" {
+		return nil, fmt.Errorf("BACKEND_PORT environment variable is required")
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid BACKEND_PORT: %w", err)
+	}
+	cfg.BackendPort = port
+
+	// Required: Backend Scheme
+	cfg.BackendScheme = os.Getenv("BACKEND_SCHEME")
+	if cfg.BackendScheme == "" {
+		return nil, fmt.Errorf("BACKEND_SCHEME environment variable is required")
+	}
+	if cfg.BackendScheme != "http" && cfg.BackendScheme != "https" {
+		return nil, fmt.Errorf("BACKEND_SCHEME must be 'http' or 'https', got: %s", cfg.BackendScheme)
 	}
 
 	if timeoutStr := os.Getenv("CONNECT_TIMEOUT"); timeoutStr != "" {
@@ -128,15 +144,16 @@ func LoadFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("MAX_BACKOFF environment variable is required")
 	}
 
-	if retriesStr := os.Getenv("MAX_RETRIES"); retriesStr != "" {
-		retries, err := strconv.Atoi(retriesStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid MAX_RETRIES: %w", err)
-		}
-		cfg.MaxRetries = retries
-	} else {
+	// Required: Max Retries
+	retriesStr := os.Getenv("MAX_RETRIES")
+	if retriesStr == "" {
 		return nil, fmt.Errorf("MAX_RETRIES environment variable is required")
 	}
+	retries, err := strconv.Atoi(retriesStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid MAX_RETRIES: %w", err)
+	}
+	cfg.MaxRetries = retries
 
 	if secretKey := os.Getenv("SECRET_KEY_BASE"); secretKey != "" {
 		cfg.SecretKeyBase = secretKey
@@ -144,14 +161,55 @@ func LoadFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("SECRET_KEY_BASE environment variable is required for token encryption")
 	}
 
-	if dbPath := os.Getenv("TOKEN_DB_PATH"); dbPath != "" {
-		cfg.TokenDBPath = dbPath
+	// Required: Token DB Path
+	cfg.TokenDBPath = os.Getenv("TOKEN_DB_PATH")
+	if cfg.TokenDBPath == "" {
+		return nil, fmt.Errorf("TOKEN_DB_PATH environment variable is required")
 	}
+
+	// Required: Max response size
+	maxSizeStr := os.Getenv("MAX_RESPONSE_SIZE")
+	if maxSizeStr == "" {
+		return nil, fmt.Errorf("MAX_RESPONSE_SIZE environment variable is required")
+	}
+	maxSize, err := strconv.ParseInt(maxSizeStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid MAX_RESPONSE_SIZE: %w", err)
+	}
+	if maxSize <= 0 {
+		return nil, fmt.Errorf("MAX_RESPONSE_SIZE must be positive")
+	}
+	cfg.MaxResponseSize = maxSize
+
+	// Required: Chunk size
+	chunkSizeStr := os.Getenv("CHUNK_SIZE")
+	if chunkSizeStr == "" {
+		return nil, fmt.Errorf("CHUNK_SIZE environment variable is required")
+	}
+	chunkSize, err := strconv.Atoi(chunkSizeStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CHUNK_SIZE: %w", err)
+	}
+	if chunkSize <= 0 {
+		return nil, fmt.Errorf("CHUNK_SIZE must be positive")
+	}
+	cfg.ChunkSize = chunkSize
+
+	// Required: Database operation timeout
+	dbTimeoutStr := os.Getenv("DB_TIMEOUT")
+	if dbTimeoutStr == "" {
+		return nil, fmt.Errorf("DB_TIMEOUT environment variable is required")
+	}
+	dbTimeout, err := time.ParseDuration(dbTimeoutStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid DB_TIMEOUT: %w", err)
+	}
+	cfg.DBTimeout = dbTimeout
 
 	return cfg, nil
 }
 
 // BackendURL returns the full backend URL
 func (c *Config) BackendURL() string {
-	return fmt.Sprintf("http://%s:%d", c.BackendHost, c.BackendPort)
+	return fmt.Sprintf("%s://%s:%d", c.BackendScheme, c.BackendHost, c.BackendPort)
 }

@@ -716,7 +716,9 @@ func createMinimalTelephone(t *testing.T, backendURL string) *Telephone {
 	t.Helper()
 
 	cfg := &config.Config{
-		RequestTimeout: 5 * time.Second,
+		RequestTimeout:  5 * time.Second,
+		MaxResponseSize: 100 * 1024 * 1024, // 100MB default
+		ChunkSize:       1024 * 1024,       // 1MB default
 	}
 
 	return createMinimalTelephoneWithConfig(t, cfg, backendURL)
@@ -743,9 +745,12 @@ func createMinimalTelephoneWithConfig(t *testing.T, cfg *config.Config, backendU
 
 	// Create config with test backend URL components
 	testCfg := &config.Config{
-		BackendHost:    host,
-		BackendPort:    port,
-		RequestTimeout: cfg.RequestTimeout,
+		BackendHost:     host,
+		BackendPort:     port,
+		BackendScheme:   "http",
+		RequestTimeout:  cfg.RequestTimeout,
+		MaxResponseSize: cfg.MaxResponseSize,
+		ChunkSize:       cfg.ChunkSize,
 	}
 
 	// Create minimal telephone without WebSocket connection

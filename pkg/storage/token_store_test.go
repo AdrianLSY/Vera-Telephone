@@ -29,7 +29,7 @@ func TestNewTokenStore(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store, err := NewTokenStore(tt.dbPath, tt.secretKeyBase)
+			store, err := NewTokenStore(tt.dbPath, tt.secretKeyBase, 10*time.Second)
 
 			if tt.expectError {
 				if err == nil {
@@ -54,7 +54,7 @@ func TestNewTokenStore(t *testing.T) {
 }
 
 func TestTokenStoreEncryptDecrypt(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestTokenStoreEncryptDecrypt(t *testing.T) {
 }
 
 func TestTokenStoreEncryptEmptyString(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestTokenStoreEncryptEmptyString(t *testing.T) {
 }
 
 func TestTokenStoreDecryptEmptyString(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestTokenStoreDecryptEmptyString(t *testing.T) {
 }
 
 func TestTokenStoreDecryptInvalidData(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestTokenStoreSaveAndLoad(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
-	store, err := NewTokenStore(dbPath, "test-secret-key-base")
+	store, err := NewTokenStore(dbPath, "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestTokenStoreSaveAndLoad(t *testing.T) {
 }
 
 func TestTokenStoreSaveEmptyToken(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestTokenStoreSaveEmptyToken(t *testing.T) {
 }
 
 func TestTokenStoreSaveExpiredToken(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestTokenStoreSaveExpiredToken(t *testing.T) {
 }
 
 func TestTokenStoreLoadNoToken(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestTokenStoreLoadNoToken(t *testing.T) {
 }
 
 func TestTokenStoreLoadExpiredToken(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestTokenStoreLoadExpiredToken(t *testing.T) {
 }
 
 func TestTokenStoreLoadMostRecent(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestTokenStoreLoadMostRecent(t *testing.T) {
 }
 
 func TestTokenStoreCleanupExpiredTokens(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestTokenStoreCleanupExpiredTokens(t *testing.T) {
 }
 
 func TestTokenStoreStats(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -456,7 +456,7 @@ func TestTokenStoreStats(t *testing.T) {
 }
 
 func TestTokenStoreConcurrentAccess(t *testing.T) {
-	store, err := NewTokenStore(":memory:", "test-secret-key-base")
+	store, err := NewTokenStore(":memory:", "test-secret-key-base", 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to create token store: %v", err)
 	}
@@ -497,7 +497,7 @@ func TestTokenStorePersistence(t *testing.T) {
 
 	// Create store and save token
 	{
-		store, err := NewTokenStore(dbPath, secretKey)
+		store, err := NewTokenStore(dbPath, secretKey, 10*time.Second)
 		if err != nil {
 			t.Fatalf("failed to create token store: %v", err)
 		}
@@ -512,7 +512,7 @@ func TestTokenStorePersistence(t *testing.T) {
 
 	// Reopen store and load token
 	{
-		store, err := NewTokenStore(dbPath, secretKey)
+		store, err := NewTokenStore(dbPath, secretKey, 10*time.Second)
 		if err != nil {
 			t.Fatalf("failed to reopen token store: %v", err)
 		}
@@ -540,7 +540,7 @@ func TestTokenStoreWrongSecretKey(t *testing.T) {
 
 	// Create store with first key and save token
 	{
-		store, err := NewTokenStore(dbPath, secretKey1)
+		store, err := NewTokenStore(dbPath, secretKey1, 10*time.Second)
 		if err != nil {
 			t.Fatalf("failed to create token store: %v", err)
 		}
@@ -555,7 +555,7 @@ func TestTokenStoreWrongSecretKey(t *testing.T) {
 
 	// Try to open with different key
 	{
-		store, err := NewTokenStore(dbPath, secretKey2)
+		store, err := NewTokenStore(dbPath, secretKey2, 10*time.Second)
 		if err != nil {
 			t.Fatalf("failed to reopen token store: %v", err)
 		}
