@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/verastack/telephone/pkg/config"
 )
 
 func init() {
@@ -481,8 +480,8 @@ func TestIntegrationLargeResponse(t *testing.T) {
 	tel.Stop()
 }
 
-// TestIntegrationErrorHandling tests error responses through the full stack
-func TestIntegrationErrorHandling(t *testing.T) {
+// TestIntegrationErrorHandlingLegacy tests error responses through the full stack (legacy version)
+func TestIntegrationErrorHandlingLegacy(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -634,24 +633,7 @@ func TestIntegrationPostWithBody(t *testing.T) {
 	tel.Stop()
 }
 
-// Helper function to check if Plugboard is available
-func isPlugboardAvailable(t *testing.T) bool {
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get("http://localhost:4000")
-	if err != nil {
-		t.Logf("Plugboard not available: %v", err)
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == 200
-}
-
-// Helper function to parse port string to int
-func parsePort(portStr string) (int, bool) {
-	var port int
-	_, err := fmt.Sscanf(portStr, "%d", &port)
-	return port, err == nil
-}
+// Helper functions moved to integration_helpers_test.go
 
 // TestIntegrationContextCancellation tests proper context handling
 func TestIntegrationContextCancellation(t *testing.T) {
@@ -808,15 +790,4 @@ func BenchmarkIntegrationProxyRequest(b *testing.B) {
 	}
 }
 
-// Helper function to load test config with proper error handling
-func loadTestConfig(t *testing.T) (*config.Config, error) {
-	cfg, err := config.LoadFromEnv()
-	if err != nil {
-		// Check if it's missing required environment variables
-		if t != nil {
-			t.Logf("Config load error: %v", err)
-		}
-		return nil, fmt.Errorf("missing required environment variables (run from project root or set TELEPHONE_TOKEN and SECRET_KEY_BASE)")
-	}
-	return cfg, nil
-}
+// loadTestConfig helper moved to integration_helpers_test.go

@@ -54,7 +54,7 @@ type ProxyResponse struct {
 type Telephone struct {
 	config     *config.Config
 	claims     *auth.JWTClaims
-	client     *channels.Client
+	client     ChannelsClient
 	backend    *http.Client
 	tokenStore *storage.TokenStore
 

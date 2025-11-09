@@ -245,7 +245,7 @@ func TestForwardToBackend(t *testing.T) {
 	defer backend.Close()
 
 	// Create minimal telephone instance
-	tel := createMinimalTelephone(t, backend.URL)
+	tel := createMinimalTelephoneT(t, backend.URL)
 
 	// Create a test proxy request
 	payload := map[string]interface{}{
@@ -299,7 +299,7 @@ func TestConcurrentRequests(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	tel := createMinimalTelephone(t, backend.URL)
+	tel := createMinimalTelephoneT(t, backend.URL)
 
 	// Send 10 concurrent requests
 	numRequests := 10
@@ -399,7 +399,7 @@ func TestChunkedResponse(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	tel := createMinimalTelephone(t, backend.URL)
+	tel := createMinimalTelephoneT(t, backend.URL)
 
 	payload := map[string]interface{}{
 		"request_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -557,7 +557,7 @@ func TestBackendErrorHandling(t *testing.T) {
 			}))
 			defer backend.Close()
 
-			tel := createMinimalTelephone(t, backend.URL)
+			tel := createMinimalTelephoneT(t, backend.URL)
 
 			payload := map[string]interface{}{
 				"request_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -593,7 +593,7 @@ func TestQueryStringForwarding(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	tel := createMinimalTelephone(t, backend.URL)
+	tel := createMinimalTelephoneT(t, backend.URL)
 
 	payload := map[string]interface{}{
 		"request_id":   "550e8400-e29b-41d4-a716-446655440000",
@@ -630,7 +630,7 @@ func TestPostRequestWithBody(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	tel := createMinimalTelephone(t, backend.URL)
+	tel := createMinimalTelephoneT(t, backend.URL)
 
 	testBody := `{"name":"Test User","email":"test@example.com"}`
 	payload := map[string]interface{}{
@@ -676,7 +676,7 @@ func TestTokenManagement(t *testing.T) {
 	}
 
 	// Test updateToken
-	newToken := createTestToken(t, time.Now().Add(2*time.Hour))
+	newToken := createTestTokenT(t, time.Now().Add(2*time.Hour))
 	newClaims, _ := auth.ParseJWTUnsafe(newToken)
 	tel.updateToken(newToken, newClaims)
 
@@ -690,8 +690,8 @@ func TestTokenManagement(t *testing.T) {
 	}
 }
 
-// Helper function to create a test JWT token
-func createTestToken(t *testing.T, expiry time.Time) string {
+// Helper function to create a test JWT token (testing.T version)
+func createTestTokenT(t *testing.T, expiry time.Time) string {
 	t.Helper()
 
 	claims := &auth.JWTClaims{
@@ -711,8 +711,8 @@ func createTestToken(t *testing.T, expiry time.Time) string {
 	return tokenString
 }
 
-// Helper function to create a minimal Telephone instance for testing
-func createMinimalTelephone(t *testing.T, backendURL string) *Telephone {
+// Helper function to create a minimal Telephone instance for testing (testing.T version)
+func createMinimalTelephoneT(t *testing.T, backendURL string) *Telephone {
 	t.Helper()
 
 	cfg := &config.Config{
@@ -769,7 +769,7 @@ func createMinimalTelephoneWithConfig(t *testing.T, cfg *config.Config, backendU
 func createMinimalTelephoneForTokenTest(t *testing.T) *Telephone {
 	t.Helper()
 
-	token := createTestToken(t, time.Now().Add(1*time.Hour))
+	token := createTestTokenT(t, time.Now().Add(1*time.Hour))
 	claims, _ := auth.ParseJWTUnsafe(token)
 
 	cfg := &config.Config{
