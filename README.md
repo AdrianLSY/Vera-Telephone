@@ -53,28 +53,28 @@ go build -o bin/telephone ./cmd/telephone
 Create a `.env` file with all required variables:
 
 ```bash
-# Authentication (Required)
+# Authentication
 TELEPHONE_TOKEN={Generate one from plugboard}
 SECRET_KEY_BASE={Generate one via `openssl rand -hex 32`}
 
-# Connection (Required)
+# Connection
 PLUGBOARD_URL=ws://localhost:4000/telephone/websocket
 BACKEND_HOST=localhost
 BACKEND_PORT=8080
 BACKEND_SCHEME=http
 
-# Timeouts (Required)
+# Timeouts
 CONNECT_TIMEOUT=10s
 REQUEST_TIMEOUT=30s
 HEARTBEAT_INTERVAL=30s
 CONNECTION_MONITOR_INTERVAL=5s
 
-# Reconnection (Required)
+# Reconnection
 INITIAL_BACKOFF=1s
 MAX_BACKOFF=30s
 MAX_RETRIES=-1
 
-# Storage & Limits (Required)
+# Storage & Limits
 TOKEN_DB_PATH=./telephone.db
 MAX_RESPONSE_SIZE=104857600
 CHUNK_SIZE=1048576
@@ -142,10 +142,10 @@ Telephone **automatically saves refreshed tokens** to an encrypted SQLite databa
 
 ### Benefits
 
-- ✅ **Survives Restarts**: No need to regenerate tokens after restart
-- ✅ **Secure**: Tokens encrypted at rest with AES-256-GCM
-- ✅ **Automatic Cleanup**: Expired tokens automatically removed
-- ✅ **Seamless**: Works transparently in the background
+- **Survives Restarts**: No need to regenerate tokens after restart
+- **Secure**: Tokens encrypted at rest with AES-256-GCM
+- **Automatic Cleanup**: Expired tokens automatically removed
+- **Seamless**: Works transparently in the background
 
 ### Security
 
@@ -232,7 +232,7 @@ docker run --rm -it \
 
 ## Features
 
-### ✅ Connection & Authentication
+### Connection & Authentication
 - WebSocket connection with automatic reconnection
 - Configurable exponential backoff and retry limits
 - JWT token parsing and validation
@@ -242,26 +242,26 @@ docker run --rm -it \
   - SQLite database storage
   - Automatic cleanup of expired tokens
 
-### ✅ Proxy Engine
+### Proxy Engine
 - HTTP request forwarding (GET, POST, PUT, PATCH, DELETE)
 - Request body support
 - Header and query parameter forwarding
 - Configurable request timeouts
 - Concurrent request handling
 
-### ✅ Response Handling
+### Response Handling
 - Standard responses
 - Chunked responses (auto-chunking >1MB)
 - Streaming support
 - Error responses
 
-### ✅ Resilience
+### Resilience
 - Connection monitoring (every 5s)
 - Automatic reconnection on disconnect
 - Graceful shutdown (waits up to 30s for active requests)
 - Request correlation with UUIDs
 
-### ✅ Monitoring
+### Monitoring
 - Connection status reporting
 - Token expiry tracking
 - Structured logging
@@ -376,8 +376,8 @@ Licensed under the **MIT License**. See [LICENSE](../LICENSE) for details.
 
 ## Related Projects
 
-- **[Plugboard](../Plugboard/)** - The reverse proxy server
-- **[Vera-Stack](../)** - Complete system documentation
+- **[Vera Plugboard](https://github.com/AdrianLSY/Vera-Plugboard)** - The reverse proxy webserver component
+- **[Vera Reverse Proxy](https://github.com/AdrianLSY/Vera-Reverse-Proxy)** - The Technology Stack
 
 ---
 
