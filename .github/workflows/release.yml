@@ -106,7 +106,7 @@ jobs:
           zip telephone-${{ steps.version.outputs.version }}-windows-amd64.zip telephone-windows-amd64.exe
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             release/*.tar.gz
