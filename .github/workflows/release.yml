@@ -8,7 +8,7 @@ on:
 
 env:
   GO_VERSION: "1.23"
-  DOCKER_IMAGE: verastack/telephone
+  DOCKER_IMAGE: vera/telephone
 
 jobs:
   release:
@@ -90,6 +90,27 @@ jobs:
             -o release/telephone-windows-amd64.exe \
             ./cmd/telephone
 
+          # Windows ARM64
+          echo "Building Windows ARM64..."
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build \
+            -ldflags="-w -s -X main.version=${VERSION}" \
+            -o release/telephone-windows-arm64.exe \
+            ./cmd/telephone
+
+          # FreeBSD AMD64
+          echo "Building FreeBSD AMD64..."
+          CGO_ENABLED=0 GOOS=freebsd GOARCH=amd64 go build \
+            -ldflags="-w -s -X main.version=${VERSION}" \
+            -o release/telephone-freebsd-amd64 \
+            ./cmd/telephone
+
+          # FreeBSD ARM64
+          echo "Building FreeBSD ARM64..."
+          CGO_ENABLED=0 GOOS=freebsd GOARCH=arm64 go build \
+            -ldflags="-w -s -X main.version=${VERSION}" \
+            -o release/telephone-freebsd-arm64 \
+            ./cmd/telephone
+
       - name: Create checksums
         run: |
           cd release
@@ -104,6 +125,9 @@ jobs:
           tar -czf telephone-${{ steps.version.outputs.version }}-darwin-amd64.tar.gz telephone-darwin-amd64
           tar -czf telephone-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz telephone-darwin-arm64
           zip telephone-${{ steps.version.outputs.version }}-windows-amd64.zip telephone-windows-amd64.exe
+          zip telephone-${{ steps.version.outputs.version }}-windows-arm64.zip telephone-windows-arm64.exe
+          tar -czf telephone-${{ steps.version.outputs.version }}-freebsd-amd64.tar.gz telephone-freebsd-amd64
+          tar -czf telephone-${{ steps.version.outputs.version }}-freebsd-arm64.tar.gz telephone-freebsd-arm64
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
