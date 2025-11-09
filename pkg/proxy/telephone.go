@@ -41,13 +41,13 @@ type PendingRequest struct {
 
 // ProxyResponse represents a response from the backend
 type ProxyResponse struct {
-	RequestID string                 `json:"request_id"`
-	Status    int                    `json:"status"`
-	Headers   map[string]string      `json:"headers"`
-	Body      string                 `json:"body"`
-	Chunked   bool                   `json:"chunked"`
-	Chunks    []string               `json:"chunks,omitempty"`
-	Error     error                  `json:"-"`
+	RequestID string            `json:"request_id"`
+	Status    int               `json:"status"`
+	Headers   map[string]string `json:"headers"`
+	Body      string            `json:"body"`
+	Chunked   bool              `json:"chunked"`
+	Chunks    []string          `json:"chunks,omitempty"`
+	Error     error             `json:"-"`
 }
 
 // Telephone is the main client that manages the WebSocket connection and proxy logic
@@ -510,8 +510,8 @@ func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 
 	log.Printf("Received proxy request [%s]: %s %s", requestID, method, path)
 
-	// Forward to backend with retry logic
-	resp, err := t.forwardToBackendWithRetry(msg.Payload)
+	// Forward to backend
+	resp, err := t.forwardToBackend(msg.Payload)
 	if err != nil {
 		log.Printf("Error forwarding to backend [%s]: %v", requestID, err)
 		t.sendProxyResponse(&ProxyResponse{
@@ -528,46 +528,6 @@ func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 	if err := t.sendProxyResponse(resp); err != nil {
 		log.Printf("Error sending proxy response [%s]: %v", requestID, err)
 	}
-}
-
-// forwardToBackendWithRetry forwards the request with retry logic for transient failures
-func (t *Telephone) forwardToBackendWithRetry(payload map[string]interface{}) (*ProxyResponse, error) {
-	method := payload["method"].(string)
-	maxRetries := 0
-
-	// Only retry idempotent methods
-	if method == "GET" || method == "HEAD" || method == "OPTIONS" || method == "PUT" {
-		maxRetries = 2
-	}
-
-	var lastErr error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			// Exponential backoff: 100ms, 200ms
-			backoff := time.Duration(100*attempt) * time.Millisecond
-			log.Printf("Retrying backend request (attempt %d/%d) after %v", attempt+1, maxRetries+1, backoff)
-			time.Sleep(backoff)
-		}
-
-		resp, err := t.forwardToBackend(payload)
-		if err == nil {
-			// Check if we should retry based on status code
-			if resp.Status >= 500 && resp.Status < 600 && attempt < maxRetries {
-				lastErr = fmt.Errorf("server error: status %d", resp.Status)
-				continue
-			}
-			return resp, nil
-		}
-
-		lastErr = err
-
-		// Don't retry on context cancellation
-		if t.ctx.Err() != nil {
-			return nil, fmt.Errorf("request cancelled: %w", err)
-		}
-	}
-
-	return nil, fmt.Errorf("backend request failed after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 // forwardToBackend forwards the request to the local backend

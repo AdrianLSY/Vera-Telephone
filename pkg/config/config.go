@@ -18,9 +18,10 @@ type Config struct {
 	BackendPort int
 
 	// Timeouts and intervals
-	ConnectTimeout    time.Duration
-	RequestTimeout    time.Duration
-	HeartbeatInterval time.Duration
+	ConnectTimeout            time.Duration
+	RequestTimeout            time.Duration
+	HeartbeatInterval         time.Duration
+	ConnectionMonitorInterval time.Duration
 
 	// Reconnection settings
 	InitialBackoff time.Duration
@@ -95,6 +96,16 @@ func LoadFromEnv() (*Config, error) {
 		cfg.HeartbeatInterval = interval
 	} else {
 		return nil, fmt.Errorf("HEARTBEAT_INTERVAL environment variable is required")
+	}
+
+	if intervalStr := os.Getenv("CONNECTION_MONITOR_INTERVAL"); intervalStr != "" {
+		interval, err := time.ParseDuration(intervalStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CONNECTION_MONITOR_INTERVAL: %w", err)
+		}
+		cfg.ConnectionMonitorInterval = interval
+	} else {
+		return nil, fmt.Errorf("CONNECTION_MONITOR_INTERVAL environment variable is required")
 	}
 
 	if backoffStr := os.Getenv("INITIAL_BACKOFF"); backoffStr != "" {

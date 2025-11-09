@@ -53,10 +53,11 @@ TELEPHONE_TOKEN={Generate one from plugboard}
 SECRET_KEY_BASE={Generate one via `openssl rand -hex 32`}
 PLUGBOARD_URL=ws://localhost:4000/telephone/websocket
 BACKEND_HOST=localhost
-BACKEND_PORT=3000
+BACKEND_PORT=8080
 CONNECT_TIMEOUT=10s
 REQUEST_TIMEOUT=30s
 HEARTBEAT_INTERVAL=30s
+CONNECTION_MONITOR_INTERVAL=5s
 INITIAL_BACKOFF=1s
 MAX_BACKOFF=30s
 MAX_RETRIES=-1
@@ -83,14 +84,14 @@ curl http://localhost:4000/call/YOUR_PATH/
 ## How It Works
 
 ```
-┌─────────────┐
-│   Client    │
-└──────┬──────┘
-       │ HTTP Request: GET /api/users
+┌──────────────┐
+│    Client    │
+└──────┬───────┘
+       │ HTTP Request: GET /call/xyz
        ▼
 ┌─────────────────────────────────┐
-│      Plugboard (:4000)          │
-│  Matches /api → Telephone       │
+│        Plugboard (:4000)        │
+│  Matches /call/xyz → Telephone  │
 └────────────┬────────────────────┘
              │ WebSocket Message
              ▼
@@ -164,28 +165,6 @@ docker run --rm -it \
   -e BACKEND_PORT=8080 \
   verastack/telephone:latest
 ```
-
-### Docker Compose
-
-```yaml
-version: '3.8'
-
-services:
-  app:
-    image: your-app:latest
-    ports:
-      - "8080:8080"
-
-  telephone:
-    image: verastack/telephone:latest
-    environment:
-      - token=${TELEPHONE_TOKEN}
-      - BACKEND_HOST=app
-      - BACKEND_PORT=8080
-    depends_on:
-      - app
-```
-
 ---
 
 ## Configuration Reference
@@ -199,6 +178,7 @@ services:
 | `CONNECT_TIMEOUT` | Connection timeout | - | ✅ |
 | `REQUEST_TIMEOUT` | Request timeout | - | ✅ |
 | `HEARTBEAT_INTERVAL` | WebSocket heartbeat interval | - | ✅ |
+| `CONNECTION_MONITOR_INTERVAL` | How often to check WebSocket connection health and trigger reconnection if needed | - | ✅ |
 | `INITIAL_BACKOFF` | Initial reconnection backoff | - | ✅ |
 | `MAX_BACKOFF` | Maximum reconnection backoff | - | ✅ |
 | `MAX_RETRIES` | Max reconnection retries (-1 = infinite) | - | ✅ |
@@ -335,83 +315,14 @@ Messages are JSON arrays: `[join_ref, ref, topic, event, payload]`
 - **proxy_res** - Response to Plugboard
 - **refresh_token** - Request new JWT token
 
-### Example Proxy Request
-
-```json
-[null, null, "telephone:path-id", "proxy_req", {
-  "request_id": "uuid",
-  "method": "GET",
-  "path": "/api/users",
-  "headers": {"host": "example.com"},
-  "query_string": "page=1",
-  "body": ""
-}]
-```
-
-### Example Proxy Response
-
-```json
-[null, "ref", "telephone:path-id", "proxy_res", {
-  "request_id": "uuid",
-  "status": 200,
-  "headers": {"content-type": "application/json"},
-  "body": "{\"users\":[]}",
-  "chunked": false
-}]
-```
-
 ---
 
-## Troubleshooting
+### Operational Limits
 
-### Connection Refused
-
-**Problem**: `websocket: bad handshake`
-
-**Solution**: Ensure Plugboard is running on port 4000 and the WebSocket endpoint is accessible.
-
-### Token Expired
-
-**Problem**: `token is expired`
-
-**Solution**: Generate a new token from Plugboard.
-
-### Backend Unreachable
-
-**Problem**: `backend request failed: connection refused`
-
-**Solution**: Ensure your backend is running on the configured port (default: 8080).
-
-### Wrong Path
-
-**Problem**: Requests return 404
-
-**Solution**: Verify the path in Plugboard. If your token is for `/test`, requests should go to `/call/test/*`.
-
----
-
-## Performance
-
-- **Startup Time**: <1 second
-- **Request Latency**: <10ms (local)
-- **Memory Usage**: ~15MB base
-- **Binary Size**: ~8MB (optimized)
-- **Docker Image**: ~20MB (Alpine-based)
-
----
-
-## Roadmap
-
-### Future Enhancements
-- [ ] Unit test suite
-- [ ] Prometheus metrics
-- [ ] Distributed tracing (OpenTelemetry)
-- [ ] Request/response caching
-- [ ] Circuit breaker pattern
-- [ ] Helm chart for Kubernetes
-- [ ] CI/CD pipeline
-
----
+- **Max Response Size**: 100 MB (requests exceeding this will fail)
+- **Chunk Size**: 1 MB per chunk (for responses >1 MB)
+- **Connection Monitor**: Configurable via `CONNECTION_MONITOR_INTERVAL` (e.g., 5s)
+- **Connection Retries**: Infinite - will keep retrying to reconnect with exponential backoff
 
 ## License
 

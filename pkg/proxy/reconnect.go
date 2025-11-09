@@ -101,11 +101,10 @@ func (t *Telephone) reconnect() error {
 func (t *Telephone) monitorConnection() {
 	defer t.wg.Done()
 
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(t.config.ConnectionMonitorInterval)
 	defer ticker.Stop()
 
 	consecutiveFailures := 0
-	const maxConsecutiveFailures = 12 // 60 seconds of failures before giving up
 
 	for {
 		select {
@@ -114,8 +113,8 @@ func (t *Telephone) monitorConnection() {
 		case <-ticker.C:
 			if !t.client.IsConnected() {
 				consecutiveFailures++
-				log.Printf("Connection lost (failure %d/%d), attempting to reconnect...",
-					consecutiveFailures, maxConsecutiveFailures)
+				log.Printf("Connection lost (failure %d), attempting to reconnect...",
+					consecutiveFailures)
 
 				if err := t.reconnect(); err != nil {
 					// Ignore "already in progress" errors
@@ -124,14 +123,7 @@ func (t *Telephone) monitorConnection() {
 					}
 					log.Printf("Reconnection failed: %v", err)
 
-					// Check if we should give up
-					if consecutiveFailures >= maxConsecutiveFailures {
-						log.Printf("Max consecutive failures reached, triggering shutdown")
-						t.cancel()
-						return
-					}
-
-					// Continue monitoring
+					// Continue monitoring - will keep retrying indefinitely
 					continue
 				}
 
