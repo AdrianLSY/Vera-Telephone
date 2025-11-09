@@ -18,8 +18,8 @@ Telephone is a sidecar process that maintains a persistent WebSocket connection 
 - **JWT Authentication** - Token-based auth with automatic refresh at half-life
 - **Graceful Shutdown** - Waits for active requests before stopping
 - **Chunked Responses** - Automatic chunking for large responses (>1MB)
-- **Request Timeout** - Configurable per-request timeouts
-- **Zero Config** - Works out of the box with sensible defaults
+- **Fully Configurable** - All timeouts, backoff, and retry settings via environment variables
+- **Token Persistence** - Encrypted token storage with automatic refresh
 
 ---
 
@@ -49,22 +49,18 @@ go build -o bin/telephone ./cmd/telephone
 Create a `.env` file:
 
 ```bash
-# Required
-token=your_jwt_token_here
-SECRET_KEY_BASE=your_64_character_hex_secret_key
-
-# Optional (defaults shown)
+TELEPHONE_TOKEN={Generate one from plugboard}
+SECRET_KEY_BASE={Generate one via `openssl rand -hex 32`}
 PLUGBOARD_URL=ws://localhost:4000/telephone/websocket
 BACKEND_HOST=localhost
-BACKEND_PORT=8080
+BACKEND_PORT=3000
 CONNECT_TIMEOUT=10s
 REQUEST_TIMEOUT=30s
+HEARTBEAT_INTERVAL=30s
+INITIAL_BACKOFF=1s
+MAX_BACKOFF=30s
+MAX_RETRIES=-1
 TOKEN_DB_PATH=./telephone.db
-```
-
-**Generate a secret key:**
-```bash
-openssl rand -hex 32
 ```
 
 ### Run
@@ -198,13 +194,17 @@ services:
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `token` or `TELEPHONE_TOKEN` | JWT token from Plugboard | - | ✅ |
+| `token` or `TELEPHONE_TOKEN` | JWT token from Plugboard | - | ✅ (or loaded from DB) |
 | `SECRET_KEY_BASE` | Secret key for encrypting tokens (64 char hex) | - | ✅ |
+| `CONNECT_TIMEOUT` | Connection timeout | - | ✅ |
+| `REQUEST_TIMEOUT` | Request timeout | - | ✅ |
+| `HEARTBEAT_INTERVAL` | WebSocket heartbeat interval | - | ✅ |
+| `INITIAL_BACKOFF` | Initial reconnection backoff | - | ✅ |
+| `MAX_BACKOFF` | Maximum reconnection backoff | - | ✅ |
+| `MAX_RETRIES` | Max reconnection retries (-1 = infinite) | - | ✅ |
 | `PLUGBOARD_URL` | WebSocket URL to Plugboard | `ws://localhost:4000/telephone/websocket` | ❌ |
 | `BACKEND_HOST` | Backend hostname | `localhost` | ❌ |
 | `BACKEND_PORT` | Backend port | `8080` | ❌ |
-| `CONNECT_TIMEOUT` | Connection timeout | `10s` | ❌ |
-| `REQUEST_TIMEOUT` | Request timeout | `30s` | ❌ |
 | `TOKEN_DB_PATH` | Path to SQLite token database | `./telephone.db` | ❌ |
 
 ---
@@ -213,7 +213,7 @@ services:
 
 ### ✅ Connection & Authentication
 - WebSocket connection with automatic reconnection
-- Exponential backoff (1s → 30s)
+- Configurable exponential backoff and retry limits
 - JWT token parsing and validation
 - Automatic token refresh at half-life (dynamic based on token lifespan)
 - **Encrypted token persistence** - Refreshed tokens survive restarts

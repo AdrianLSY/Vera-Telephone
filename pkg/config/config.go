@@ -36,17 +36,10 @@ type Config struct {
 func LoadFromEnv() (*Config, error) {
 	cfg := &Config{
 		// Defaults
-		PlugboardURL:      "ws://localhost:4000/telephone/websocket",
-		BackendHost:       "localhost",
-		BackendPort:       8080,
-		ConnectTimeout:    10 * time.Second,
-		RequestTimeout:    30 * time.Second,
-		HeartbeatInterval: 30 * time.Second,
-		InitialBackoff:    1 * time.Second,
-		MaxBackoff:        30 * time.Second,
-		MaxRetries:        -1, // Infinite retries
-		TokenDBPath:       "./telephone.db",
-		SecretKeyBase:     "", // Must be provided
+		PlugboardURL: "ws://localhost:4000/telephone/websocket",
+		BackendHost:  "localhost",
+		BackendPort:  8080,
+		TokenDBPath:  "./telephone.db",
 	}
 
 	// Optional: Token (can be loaded from database if not provided)
@@ -80,6 +73,8 @@ func LoadFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("invalid CONNECT_TIMEOUT: %w", err)
 		}
 		cfg.ConnectTimeout = timeout
+	} else {
+		return nil, fmt.Errorf("CONNECT_TIMEOUT environment variable is required")
 	}
 
 	if timeoutStr := os.Getenv("REQUEST_TIMEOUT"); timeoutStr != "" {
@@ -88,6 +83,48 @@ func LoadFromEnv() (*Config, error) {
 			return nil, fmt.Errorf("invalid REQUEST_TIMEOUT: %w", err)
 		}
 		cfg.RequestTimeout = timeout
+	} else {
+		return nil, fmt.Errorf("REQUEST_TIMEOUT environment variable is required")
+	}
+
+	if intervalStr := os.Getenv("HEARTBEAT_INTERVAL"); intervalStr != "" {
+		interval, err := time.ParseDuration(intervalStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid HEARTBEAT_INTERVAL: %w", err)
+		}
+		cfg.HeartbeatInterval = interval
+	} else {
+		return nil, fmt.Errorf("HEARTBEAT_INTERVAL environment variable is required")
+	}
+
+	if backoffStr := os.Getenv("INITIAL_BACKOFF"); backoffStr != "" {
+		backoff, err := time.ParseDuration(backoffStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid INITIAL_BACKOFF: %w", err)
+		}
+		cfg.InitialBackoff = backoff
+	} else {
+		return nil, fmt.Errorf("INITIAL_BACKOFF environment variable is required")
+	}
+
+	if backoffStr := os.Getenv("MAX_BACKOFF"); backoffStr != "" {
+		backoff, err := time.ParseDuration(backoffStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid MAX_BACKOFF: %w", err)
+		}
+		cfg.MaxBackoff = backoff
+	} else {
+		return nil, fmt.Errorf("MAX_BACKOFF environment variable is required")
+	}
+
+	if retriesStr := os.Getenv("MAX_RETRIES"); retriesStr != "" {
+		retries, err := strconv.Atoi(retriesStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid MAX_RETRIES: %w", err)
+		}
+		cfg.MaxRetries = retries
+	} else {
+		return nil, fmt.Errorf("MAX_RETRIES environment variable is required")
 	}
 
 	if secretKey := os.Getenv("SECRET_KEY_BASE"); secretKey != "" {

@@ -68,7 +68,7 @@ func TestIntegrationFullFlow(t *testing.T) {
 	// Create and start Telephone
 	tel, err := New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create Telephone: %v", err)
+		t.Fatalf("Failed to connect to Plubboard: %v", err)
 	}
 
 	// Start in background
@@ -124,7 +124,7 @@ func TestIntegrationConnection(t *testing.T) {
 
 	tel, err := New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create Telephone: %v", err)
+		t.Fatalf("Failed to connect to Plubboard: %v", err)
 	}
 
 	// Start should succeed
@@ -177,7 +177,7 @@ func TestIntegrationHeartbeat(t *testing.T) {
 
 	tel, err := New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create Telephone: %v", err)
+		t.Fatalf("Failed to connect to Plubboard: %v", err)
 	}
 
 	errChan := make(chan error, 1)
@@ -232,7 +232,7 @@ func TestIntegrationTokenRefresh(t *testing.T) {
 
 	tel, err := New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create Telephone: %v", err)
+		t.Fatalf("Failed to connect to Plubboard: %v", err)
 	}
 
 	initialToken := tel.getCurrentToken()
@@ -347,7 +347,7 @@ func TestIntegrationConcurrentProxyRequests(t *testing.T) {
 
 	tel, err := New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create Telephone: %v", err)
+		t.Fatalf("Failed to connect to Plubboard: %v", err)
 	}
 
 	go tel.Start()
@@ -440,7 +440,7 @@ func TestIntegrationLargeResponse(t *testing.T) {
 
 	tel, err := New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create Telephone: %v", err)
+		t.Fatalf("Failed to connect to Plubboard: %v", err)
 	}
 
 	go tel.Start()
@@ -527,7 +527,7 @@ func TestIntegrationErrorHandling(t *testing.T) {
 
 			tel, err := New(cfg)
 			if err != nil {
-				t.Fatalf("Failed to create Telephone: %v", err)
+				t.Fatalf("Failed to connect to Plubboard: %v", err)
 			}
 
 			go tel.Start()
@@ -597,7 +597,7 @@ func TestIntegrationPostWithBody(t *testing.T) {
 
 	tel, err := New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create Telephone: %v", err)
+		t.Fatalf("Failed to connect to Plubboard: %v", err)
 	}
 
 	go tel.Start()
@@ -674,7 +674,7 @@ func TestIntegrationContextCancellation(t *testing.T) {
 
 	tel, err := New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create Telephone: %v", err)
+		t.Fatalf("Failed to connect to Plubboard: %v", err)
 	}
 
 	go tel.Start()
@@ -722,7 +722,7 @@ func TestIntegrationTokenPersistence(t *testing.T) {
 
 	tel, err := New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create Telephone: %v", err)
+		t.Fatalf("Failed to connect to Plubboard: %v", err)
 	}
 
 	go tel.Start()

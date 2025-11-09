@@ -44,7 +44,7 @@ func main() {
 	// Create Telephone instance
 	tel, err := proxy.New(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create Telephone: %v", err)
+		log.Fatalf("Failed to connect to Plubboard: %v", err)
 	}
 
 	// Start the client
