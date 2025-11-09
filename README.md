@@ -5,6 +5,7 @@
 [![Go Version](https://img.shields.io/badge/go-1.23-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![CI](https://github.com/AdrianLSY/Vera-Telephone/actions/workflows/ci.yml/badge.svg)](https://github.com/AdrianLSY/Vera-Telephone/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/AdrianLSY/Vera-Telephone/branch/main/graph/badge.svg)](https://codecov.io/gh/AdrianLSY/Vera-Telephone)
 
 ---
 
