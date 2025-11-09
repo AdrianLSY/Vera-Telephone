@@ -235,17 +235,29 @@ func (c *Client) readLoop() {
 		log.Printf("readLoop exited, connection cleaned up")
 	}()
 
-	for {
+	// Start a goroutine to monitor context cancellation and close connection
+	// This ensures ReadMessage() is unblocked when context is cancelled
+	contextDone := make(chan struct{})
+	go func() {
 		select {
 		case <-c.readCtx.Done():
-			log.Printf("readLoop cancelled")
-			return
+			log.Printf("readLoop context cancelled, closing connection")
 		case <-c.ctx.Done():
-			log.Printf("readLoop main context cancelled")
+			log.Printf("main context cancelled, closing connection")
+		case <-contextDone:
 			return
-		default:
 		}
 
+		// Close connection to unblock ReadMessage()
+		c.connLock.Lock()
+		if c.conn != nil {
+			c.conn.Close()
+		}
+		c.connLock.Unlock()
+	}()
+	defer close(contextDone)
+
+	for {
 		c.connLock.RLock()
 		conn := c.conn
 		c.connLock.RUnlock()
@@ -257,10 +269,20 @@ func (c *Client) readLoop() {
 
 		_, data, err := conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("WebSocket read error: %v", err)
+			// Check if we're shutting down gracefully
+			select {
+			case <-c.readCtx.Done():
+				log.Printf("readLoop cancelled")
+				return
+			case <-c.ctx.Done():
+				log.Printf("readLoop main context cancelled")
+				return
+			default:
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Printf("WebSocket read error: %v", err)
+				}
+				return
 			}
-			return
 		}
 
 		// Parse message
