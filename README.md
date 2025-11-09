@@ -370,7 +370,7 @@ Messages are JSON arrays: `[join_ref, ref, topic, event, payload]`
 
 ## License
 
-Licensed under the **MIT License**. See [LICENSE](../LICENSE) for details.
+Licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
 
 ---
 
