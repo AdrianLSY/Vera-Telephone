@@ -20,7 +20,7 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
     ./cmd/telephone
 
 # Runtime stage
-FROM alpine:3.19
+FROM alpine:3.22
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata sqlite-libs
