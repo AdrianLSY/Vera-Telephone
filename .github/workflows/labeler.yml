@@ -1,0 +1,119 @@
+name: Auto Label PRs
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    name: Auto Label
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Label based on changed files
+        uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          sync-labels: true
+
+      - name: Label PR size
+        uses: codelytv/pr-size-labeler@v1
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          xs_label: 'size/xs'
+          xs_max_size: 10
+          s_label: 'size/s'
+          s_max_size: 100
+          m_label: 'size/m'
+          m_max_size: 500
+          l_label: 'size/l'
+          l_max_size: 1000
+          xl_label: 'size/xl'
+          fail_if_xl: false
+
+      - name: Label by PR title
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title.toLowerCase();
+            const labels = [];
+
+            // Conventional commit type labels
+            if (title.startsWith('feat:') || title.includes('[feature]')) {
+              labels.push('enhancement');
+            } else if (title.startsWith('fix:') || title.includes('[fix]')) {
+              labels.push('bug');
+            } else if (title.startsWith('docs:') || title.includes('[docs]')) {
+              labels.push('documentation');
+            } else if (title.startsWith('test:') || title.includes('[test]')) {
+              labels.push('testing');
+            } else if (title.startsWith('refactor:') || title.includes('[refactor]')) {
+              labels.push('refactor');
+            } else if (title.startsWith('perf:') || title.includes('[perf]')) {
+              labels.push('performance');
+            } else if (title.startsWith('ci:') || title.includes('[ci]')) {
+              labels.push('ci/cd');
+            } else if (title.startsWith('chore:') || title.includes('[chore]')) {
+              labels.push('chore');
+            }
+
+            // Breaking change label
+            if (title.includes('!:') || title.includes('[breaking]')) {
+              labels.push('breaking-change');
+            }
+
+            // Security label
+            if (title.includes('security') || title.includes('vulnerability')) {
+              labels.push('security');
+            }
+
+            // Hotfix label
+            if (title.includes('hotfix') || title.includes('urgent')) {
+              labels.push('hotfix');
+            }
+
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: labels
+              });
+            }
+
+      - name: Comment on first PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prAuthor = context.payload.pull_request.user.login;
+
+            // Check if this is the author's first PR
+            const { data: pullRequests } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              creator: prAuthor
+            });
+
+            if (pullRequests.length === 1) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: `👋 Welcome to Telephone, @${prAuthor}! Thank you for your first contribution!\n\n` +
+                      `Please make sure:\n` +
+                      `- [ ] Your code passes all tests (\`make test\`)\n` +
+                      `- [ ] Your code is properly formatted (\`make fmt\`)\n` +
+                      `- [ ] Your code passes linting (\`make lint\`)\n` +
+                      `- [ ] You've added tests for new functionality\n` +
+                      `- [ ] You've updated documentation if needed\n\n` +
+                      `A maintainer will review your PR soon. Thanks again! 🚀`
+              });
+            }

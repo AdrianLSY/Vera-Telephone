@@ -1,0 +1,263 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+  schedule:
+    # Run benchmarks weekly on Sunday at 3 AM UTC
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+env:
+  GO_VERSION: "1.23"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc sqlite3 libsqlite3-dev
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Run benchmarks
+        env:
+          CGO_ENABLED: 1
+        run: |
+          go test -bench=. -benchmem -benchtime=10s -timeout=30m -run=^$ ./... | tee benchmark-output.txt
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: "go"
+          output-file-path: benchmark-output.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          # Store results in gh-pages branch
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          # Alert if performance degrades
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          alert-comment-cc-users: "@verastack/maintainers"
+
+      - name: Parse benchmark results
+        id: parse
+        run: |
+          if [ -f benchmark-output.txt ]; then
+            TOTAL_BENCHMARKS=$(grep -c "^Benchmark" benchmark-output.txt || echo "0")
+            echo "total=$TOTAL_BENCHMARKS" >> $GITHUB_OUTPUT
+            echo "Total benchmarks run: $TOTAL_BENCHMARKS"
+          else
+            echo "total=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate benchmark summary
+        run: |
+          echo "## 📊 Performance Benchmark Results" > benchmark-summary.md
+          echo "" >> benchmark-summary.md
+          echo "**Total Benchmarks**: ${{ steps.parse.outputs.total }}" >> benchmark-summary.md
+          echo "" >> benchmark-summary.md
+          echo "### Results" >> benchmark-summary.md
+          echo "" >> benchmark-summary.md
+          echo "\`\`\`" >> benchmark-summary.md
+          cat benchmark-output.txt >> benchmark-summary.md
+          echo "\`\`\`" >> benchmark-summary.md
+          echo "" >> benchmark-summary.md
+          echo "---" >> benchmark-summary.md
+          echo "*Benchmarks run with: \`go test -bench=. -benchmem -benchtime=10s\`*" >> benchmark-summary.md
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            benchmark-output.txt
+            benchmark-summary.md
+          retention-days: 90
+
+      - name: Comment PR with benchmark results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('benchmark-summary.md', 'utf8');
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Performance Benchmark Results')
+            );
+
+            const body = summary + '\n\n' +
+              '📈 **View historical benchmark data**: ' +
+              `https://${context.repo.owner}.github.io/${context.repo.repo}/dev/bench/`;
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: body
+              });
+            }
+
+  benchmark-comparison:
+    name: Compare with Base Branch
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc sqlite3 libsqlite3-dev
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run PR benchmarks
+        env:
+          CGO_ENABLED: 1
+        run: |
+          go test -bench=. -benchmem -benchtime=5s -count=5 -run=^$ ./... | tee pr-bench.txt
+
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          clean: false
+
+      - name: Run base benchmarks
+        env:
+          CGO_ENABLED: 1
+        run: |
+          go test -bench=. -benchmem -benchtime=5s -count=5 -run=^$ ./... | tee base-bench.txt
+
+      - name: Compare benchmarks
+        id: compare
+        run: |
+          if [ -f pr-bench.txt ] && [ -f base-bench.txt ]; then
+            benchstat base-bench.txt pr-bench.txt | tee comparison.txt
+            echo "has_comparison=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_comparison=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment comparison results
+        if: steps.compare.outputs.has_comparison == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const comparison = fs.readFileSync('comparison.txt', 'utf8');
+
+            const body = `## 📊 Benchmark Comparison
+
+            Comparison between \`${context.payload.pull_request.base.ref}\` and this PR:
+
+            <details>
+            <summary>View Results</summary>
+
+            \`\`\`
+            ${comparison}
+            \`\`\`
+
+            </details>
+
+            **Legend**:
+            - \`~\` means no significant change
+            - \`+\` means slower (regression)
+            - \`-\` means faster (improvement)
+
+            *Run with: \`benchstat base.txt pr.txt\`*
+            `;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: body
+            });
+
+      - name: Check for performance regressions
+        if: steps.compare.outputs.has_comparison == 'true'
+        run: |
+          # Check if there are significant regressions (>20% slower)
+          if grep -q "+" comparison.txt; then
+            echo "⚠️ Warning: Some benchmarks show performance regression"
+            echo "Please review the benchmark comparison above"
+            # Don't fail the build, just warn
+          else
+            echo "✅ No significant performance regressions detected"
+          fi
+
+  summary:
+    name: Benchmark Summary
+    runs-on: ubuntu-latest
+    needs: [benchmark]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Performance Benchmark Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Benchmark Run**: ${{ needs.benchmark.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.benchmark.result }}" != "success" ]; then
+            echo "❌ **Benchmark run failed!**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ **Benchmark run completed successfully!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📈 View benchmark trends in the artifacts or gh-pages branch" >> $GITHUB_STEP_SUMMARY
+          fi

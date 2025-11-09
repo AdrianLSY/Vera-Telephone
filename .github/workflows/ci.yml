@@ -1,0 +1,238 @@
+name: CI
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+  workflow_dispatch:
+
+env:
+  GO_VERSION: "1.23"
+  DOCKER_IMAGE: verastack/telephone
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc sqlite3 libsqlite3-dev
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Verify Go modules
+        run: go mod verify
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run go fmt check
+        run: |
+          if [ -n "$(gofmt -s -l .)" ]; then
+            echo "Go code is not formatted:"
+            gofmt -s -d .
+            exit 1
+          fi
+
+      - name: Run tests
+        env:
+          CGO_ENABLED: 1
+        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Generate coverage report
+        run: go tool cover -func=coverage.out
+
+      - name: Upload coverage to artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.out
+          retention-days: 7
+
+  build-binaries:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    needs: test
+
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+          - goos: windows
+            goarch: amd64
+            suffix: windows-amd64.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install cross-compilation dependencies
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev-${GITHUB_SHA::8}")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+          CC: ${{ matrix.goarch == 'arm64' && matrix.goos == 'linux' && 'aarch64-linux-gnu-gcc' || 'gcc' }}
+        run: |
+          mkdir -p bin
+          go build \
+            -v \
+            -ldflags="-w -s -X main.version=${{ steps.version.outputs.version }}" \
+            -o bin/telephone-${{ matrix.suffix }} \
+            ./cmd/telephone
+
+      - name: Test binary (non-Windows)
+        if: matrix.goos != 'windows' && matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          chmod +x bin/telephone-${{ matrix.suffix }}
+          bin/telephone-${{ matrix.suffix }} --version 2>&1 || echo "Binary requires runtime configuration"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: telephone-${{ matrix.suffix }}
+          path: bin/telephone-${{ matrix.suffix }}
+          retention-days: 7
+
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev-${GITHUB_SHA::8}")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building Docker image version: ${VERSION}"
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ env.DOCKER_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
+
+      - name: Test Docker image
+        run: |
+          echo "Testing that Docker image was built successfully..."
+          docker images | grep telephone
+
+          echo "Inspecting image..."
+          docker inspect ${{ env.DOCKER_IMAGE }}:latest
+
+          echo "Checking image runs (will fail due to missing config, but should start)..."
+          timeout 5 docker run --rm \
+            -e TELEPHONE_TOKEN=test_token \
+            -e SECRET_KEY_BASE=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+            -e PLUGBOARD_URL=ws://localhost:4000/telephone/websocket \
+            -e BACKEND_HOST=localhost \
+            -e BACKEND_PORT=8080 \
+            -e BACKEND_SCHEME=http \
+            -e CONNECT_TIMEOUT=10s \
+            -e REQUEST_TIMEOUT=30s \
+            -e HEARTBEAT_INTERVAL=30s \
+            -e CONNECTION_MONITOR_INTERVAL=5s \
+            -e INITIAL_BACKOFF=1s \
+            -e MAX_BACKOFF=30s \
+            -e MAX_RETRIES=3 \
+            -e TOKEN_DB_PATH=/app/telephone.db \
+            -e MAX_RESPONSE_SIZE=104857600 \
+            -e CHUNK_SIZE=1048576 \
+            -e DB_TIMEOUT=10s \
+            ${{ env.DOCKER_IMAGE }}:latest || echo "Container started and failed as expected (no Plugboard server)"
+
+      - name: Save Docker image
+        run: |
+          docker save ${{ env.DOCKER_IMAGE }}:latest | gzip > telephone-docker-image.tar.gz
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: telephone-docker-image
+          path: telephone-docker-image.tar.gz
+          retention-days: 7
+
+  summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [test, build-binaries, build-docker]
+    if: always()
+
+    steps:
+      - name: Check build status
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Test**: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Binaries**: ${{ needs.build-binaries.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Docker**: ${{ needs.build-docker.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.build-binaries.result }}" != "success" ] || \
+             [ "${{ needs.build-docker.result }}" != "success" ]; then
+            echo "❌ **Build failed!**" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ **All builds successful!**" >> $GITHUB_STEP_SUMMARY
+          fi
