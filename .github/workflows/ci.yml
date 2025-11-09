@@ -2,13 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, development]
+    branches: [main, development]
   pull_request:
-    branches: [main, develop, development]
+    branches: [main, development]
   workflow_dispatch:
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: "1.23"
 
 jobs:
   test:
