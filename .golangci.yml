@@ -21,53 +21,53 @@ output:
 
 linters:
   enable:
-    - errcheck        # Checks for unchecked errors
-    - gosimple        # Simplify code
-    - govet           # Reports suspicious constructs
-    - ineffassign     # Detects ineffectual assignments
-    - staticcheck     # Go static analysis
-    - typecheck       # Type-checks Go code
-    - unused          # Checks for unused constants, variables, functions and types
-    - gofmt           # Checks whether code was gofmt-ed
-    - goimports       # Checks import statements are formatted
-    - misspell        # Finds commonly misspelled English words
-    - revive          # Fast, configurable, extensible, flexible, and beautiful linter for Go
-    - gosec           # Inspects source code for security problems
-    - unconvert       # Removes unnecessary type conversions
-    - goconst         # Finds repeated strings that could be replaced by a constant
-    - bodyclose       # Checks whether HTTP response body is closed successfully
-    - errname         # Checks that sentinel errors are prefixed with Err
-    - errorlint       # Find code that will cause problems with the error wrapping scheme
-    - exhaustive      # Check exhaustiveness of enum switch statements
-    - exportloopref   # Checks for pointers to enclosing loop variables
-    - gochecknoinits  # Checks that no init functions are present
-    - gocritic        # Provides diagnostics that check for bugs, performance and style issues
-    - gocyclo         # Computes and checks the cyclomatic complexity of functions
-    - godot           # Check if comments end in a period
+    - errcheck # Checks for unchecked errors
+    - gosimple # Simplify code
+    - govet # Reports suspicious constructs
+    - ineffassign # Detects ineffectual assignments
+    - staticcheck # Go static analysis
+    - typecheck # Type-checks Go code
+    - unused # Checks for unused constants, variables, functions and types
+    - gofmt # Checks whether code was gofmt-ed
+    - goimports # Checks import statements are formatted
+    - misspell # Finds commonly misspelled English words
+    - revive # Fast, configurable, extensible, flexible, and beautiful linter for Go
+    - gosec # Inspects source code for security problems
+    - unconvert # Removes unnecessary type conversions
+    - goconst # Finds repeated strings that could be replaced by a constant
+    - bodyclose # Checks whether HTTP response body is closed successfully
+    - errname # Checks that sentinel errors are prefixed with Err
+    - errorlint # Find code that will cause problems with the error wrapping scheme
+    - exhaustive # Check exhaustiveness of enum switch statements
+    - exportloopref # Checks for pointers to enclosing loop variables
+    - gochecknoinits # Checks that no init functions are present
+    - gocritic # Provides diagnostics that check for bugs, performance and style issues
+    - gocyclo # Computes and checks the cyclomatic complexity of functions
+    - godot # Check if comments end in a period
     - goprintffuncname # Checks that printf-like functions are named with f at the end
-    - nilerr          # Finds the code that returns nil even if it checks that the error is not nil
-    - nolintlint      # Reports ill-formed or insufficient nolint directives
-    - prealloc        # Finds slice declarations that could potentially be pre-allocated
-    - predeclared     # Finds code that shadows one of Go's predeclared identifiers
-    - stylecheck      # Stylecheck is a replacement for golint
-    - thelper         # Detects golang test helpers without t.Helper() call
-    - unparam         # Reports unused function parameters
-    - whitespace      # Tool for detection of leading and trailing whitespace
-    - wsl             # Whitespace Linter
+    - nilerr # Finds the code that returns nil even if it checks that the error is not nil
+    - nolintlint # Reports ill-formed or insufficient nolint directives
+    - prealloc # Finds slice declarations that could potentially be pre-allocated
+    - predeclared # Finds code that shadows one of Go's predeclared identifiers
+    - stylecheck # Stylecheck is a replacement for golint
+    - thelper # Detects golang test helpers without t.Helper() call
+    - unparam # Reports unused function parameters
+    - whitespace # Tool for detection of leading and trailing whitespace
+    - wsl # Whitespace Linter
 
   disable:
-    - funlen          # Can be too strict for some functions
-    - gocognit        # Similar to gocyclo
-    - gomnd           # Too strict about magic numbers
-    - lll             # Line length can be flexible
-    - nlreturn        # Too opinionated about return statements
-    - testpackage     # Not always practical
-    - wrapcheck       # Too strict about error wrapping
-    - paralleltest    # Not always necessary
-    - tagliatelle     # JSON/XML tag naming can be flexible
-    - exhaustruct     # Too strict about struct initialization
-    - ireturn         # Too strict about interface returns
-    - varnamelen      # Variable name length is often contextual
+    - funlen # Can be too strict for some functions
+    - gocognit # Similar to gocyclo
+    - gomnd # Too strict about magic numbers
+    - lll # Line length can be flexible
+    - nlreturn # Too opinionated about return statements
+    - testpackage # Not always practical
+    - wrapcheck # Too strict about error wrapping
+    - paralleltest # Not always necessary
+    - tagliatelle # JSON/XML tag naming can be flexible
+    - exhaustruct # Too strict about struct initialization
+    - ireturn # Too strict about interface returns
+    - varnamelen # Variable name length is often contextual
 
 linters-settings:
   errcheck:
@@ -148,9 +148,50 @@ linters-settings:
     checks: ["all"]
 
   stylecheck:
-    checks: ["all", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022"]
+    checks:
+      ["all", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022"]
     dot-import-whitelist: []
-    initialisms: ["ACL", "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "ID", "IP", "JSON", "JWT", "QPS", "RAM", "RPC", "SLA", "SMTP", "SQL", "SSH", "TCP", "TLS", "TTL", "UDP", "UI", "UID", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XMPP", "XSRF", "XSS", "WS"]
+    initialisms:
+      [
+        "ACL",
+        "API",
+        "ASCII",
+        "CPU",
+        "CSS",
+        "DNS",
+        "EOF",
+        "GUID",
+        "HTML",
+        "HTTP",
+        "HTTPS",
+        "ID",
+        "IP",
+        "JSON",
+        "JWT",
+        "QPS",
+        "RAM",
+        "RPC",
+        "SLA",
+        "SMTP",
+        "SQL",
+        "SSH",
+        "TCP",
+        "TLS",
+        "TTL",
+        "UDP",
+        "UI",
+        "UID",
+        "UUID",
+        "URI",
+        "URL",
+        "UTF8",
+        "VM",
+        "XML",
+        "XMPP",
+        "XSRF",
+        "XSS",
+        "WS",
+      ]
     http-status-code-whitelist: ["200", "400", "404", "500"]
 
   unused:
@@ -181,12 +222,6 @@ issues:
         - gosec
         - goconst
         - gochecknoinits
-
-    # Exclude known linters from partially hard-vendored code
-    - path: test_server/
-      linters:
-        - gochecknoinits
-        - gosec
 
     # Ignore long lines in tests with URLs or long strings
     - source: "https?://"
