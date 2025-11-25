@@ -1,8 +1,8 @@
 package proxy
 
 import (
-	"context"
-	"encoding/json"
+"context"
+"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,10 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/verastack/telephone/pkg/auth"
-	"github.com/verastack/telephone/pkg/config"
+"github.com/golang-jwt/jwt/v5"
+"github.com/verastack/telephone/pkg/auth"
+"github.com/verastack/telephone/pkg/config"
 )
+
+const testJWTSecret = "test-secret-key-base"
 
 // TestValidateProxyRequest tests the proxy request validation logic
 func TestValidateProxyRequest(t *testing.T) {
@@ -676,8 +678,8 @@ func TestTokenManagement(t *testing.T) {
 	}
 
 	// Test updateToken
-	newToken := createTestTokenT(t, time.Now().Add(2*time.Hour))
-	newClaims, _ := auth.ParseJWTUnsafe(newToken)
+newToken := createTestTokenT(t, time.Now().Add(2*time.Hour))
+newClaims, _ := auth.ParseJWT(newToken, testJWTSecret)
 	tel.updateToken(newToken, newClaims)
 
 	updatedToken := tel.getCurrentToken()
@@ -702,8 +704,8 @@ func createTestTokenT(t *testing.T, expiry time.Time) string {
 		Exp:    expiry.Unix(),
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte("test-secret-key"))
+token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+tokenString, err := token.SignedString([]byte(testJWTSecret))
 	if err != nil {
 		t.Fatalf("failed to generate test token: %v", err)
 	}
@@ -769,14 +771,15 @@ func createMinimalTelephoneWithConfig(t *testing.T, cfg *config.Config, backendU
 func createMinimalTelephoneForTokenTest(t *testing.T) *Telephone {
 	t.Helper()
 
-	token := createTestTokenT(t, time.Now().Add(1*time.Hour))
-	claims, _ := auth.ParseJWTUnsafe(token)
+token := createTestTokenT(t, time.Now().Add(1*time.Hour))
+claims, _ := auth.ParseJWT(token, testJWTSecret)
 
 	cfg := &config.Config{
 		BackendHost:    "localhost",
 		BackendPort:    8080,
 		RequestTimeout: 5 * time.Second,
-		Token:          token,
+Token:          token,
+SecretKeyBase:  testJWTSecret,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

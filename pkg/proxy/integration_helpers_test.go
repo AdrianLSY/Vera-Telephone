@@ -141,11 +141,11 @@ func assertTokenValid(t *testing.T, tel *Telephone) {
 func assertHeartbeatRecent(t *testing.T, tel *Telephone, maxAge time.Duration) {
 	t.Helper()
 	tel.heartbeatLock.RLock()
-	lastHeartbeat := tel.lastHeartbeat
+	lastHeartbeat := tel.lastHeartbeatAck
 	tel.heartbeatLock.RUnlock()
 
 	if lastHeartbeat.IsZero() {
-		t.Error("Expected heartbeat to have been sent")
+		t.Error("Expected heartbeat to have been acknowledged")
 		return
 	}
 

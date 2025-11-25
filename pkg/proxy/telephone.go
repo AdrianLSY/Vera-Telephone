@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
+	pathpkg "path"
 	"regexp"
 	"strings"
 	"sync"
@@ -31,6 +33,14 @@ var validHTTPMethods = map[string]bool{
 
 // UUID validation regex
 var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+const (
+	maxHeaderCount       = 50
+	maxHeaderNameLength  = 256
+	maxHeaderValueLength = 4096
+	maxPathLength        = 2048
+	maxQueryStringLength = 2048
+)
 
 // PendingRequest tracks an in-flight proxy request
 type PendingRequest struct {
@@ -74,8 +84,9 @@ type Telephone struct {
 	wg     sync.WaitGroup
 
 	// Heartbeat
-	lastHeartbeat time.Time
-	heartbeatLock sync.RWMutex
+	lastHeartbeatSent time.Time
+	lastHeartbeatAck  time.Time
+	heartbeatLock     sync.RWMutex
 
 	// Reconnection
 	reconnecting  sync.Mutex
@@ -109,8 +120,8 @@ func New(cfg *config.Config) (*Telephone, error) {
 		return nil, fmt.Errorf("no valid token available: please provide TELEPHONE_TOKEN environment variable or ensure database has a valid token")
 	}
 
-	// Parse JWT without signature verification (tokens come from trusted sources)
-	claims, err = auth.ParseJWTUnsafe(token)
+	// Parse and verify JWT using configured secret
+	claims, err = auth.ParseJWT(token, cfg.SecretKeyBase)
 	if err != nil {
 		tokenStore.Close()
 		return nil, fmt.Errorf("failed to parse JWT: %w", err)
@@ -165,6 +176,13 @@ func (t *Telephone) Start() error {
 	if err := t.joinChannel(); err != nil {
 		return fmt.Errorf("failed to join channel: %w", err)
 	}
+
+	// Initialize heartbeat tracking from successful join
+	t.heartbeatLock.Lock()
+	now := time.Now()
+	t.lastHeartbeatSent = now
+	t.lastHeartbeatAck = now
+	t.heartbeatLock.Unlock()
 
 	// Start heartbeat
 	t.wg.Add(1)
@@ -309,7 +327,7 @@ func (t *Telephone) sendHeartbeat() error {
 	}
 
 	t.heartbeatLock.Lock()
-	t.lastHeartbeat = time.Now()
+	t.lastHeartbeatSent = time.Now()
 	t.heartbeatLock.Unlock()
 
 	log.Printf("Heartbeat sent (ref: %s)", ref)
@@ -318,6 +336,10 @@ func (t *Telephone) sendHeartbeat() error {
 
 // handleHeartbeatAck handles heartbeat acknowledgment from Plugboard
 func (t *Telephone) handleHeartbeatAck(msg *channels.Message) {
+	t.heartbeatLock.Lock()
+	t.lastHeartbeatAck = time.Now()
+	t.heartbeatLock.Unlock()
+
 	log.Printf("Heartbeat acknowledged")
 }
 
@@ -399,8 +421,8 @@ func (t *Telephone) refreshToken() error {
 		return fmt.Errorf("no token in refresh response")
 	}
 
-	// Parse new token without signature verification (comes from authenticated WebSocket)
-	newClaims, err := auth.ParseJWTUnsafe(newToken)
+	// Parse and verify new token using configured secret
+	newClaims, err := auth.ParseJWT(newToken, t.config.SecretKeyBase)
 	if err != nil {
 		return fmt.Errorf("failed to parse new token: %w", err)
 	}
@@ -438,6 +460,36 @@ func (t *Telephone) refreshToken() error {
 	return nil
 }
 
+func normalizePath(rawPath string) (string, error) {
+	if rawPath == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+
+	if len(rawPath) > maxPathLength {
+		return "", fmt.Errorf("path too long (max %d characters)", maxPathLength)
+	}
+
+	if !strings.HasPrefix(rawPath, "/") {
+		return "", fmt.Errorf("path must start with '/'")
+	}
+
+	cleanPath := pathpkg.Clean(rawPath)
+	if !strings.HasPrefix(cleanPath, "/") {
+		cleanPath = "/" + cleanPath
+	}
+
+	parsed, err := url.Parse(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %w", err)
+	}
+
+	if parsed.Fragment != "" {
+		return "", fmt.Errorf("path must not include fragment identifiers")
+	}
+
+	return parsed.EscapedPath(), nil
+}
+
 // validateProxyRequest validates incoming proxy request payload
 func validateProxyRequest(payload map[string]interface{}) error {
 	// Validate request_id
@@ -467,19 +519,38 @@ func validateProxyRequest(payload map[string]interface{}) error {
 	if !ok {
 		return fmt.Errorf("missing or invalid path")
 	}
-	if path == "" {
-		return fmt.Errorf("path cannot be empty")
+
+	normalizedPath, err := normalizePath(path)
+	if err != nil {
+		return err
 	}
+
+	payload["path"] = normalizedPath
 
 	// Validate headers if present
 	if headers, ok := payload["headers"].(map[string]interface{}); ok {
+		if len(headers) > maxHeaderCount {
+			return fmt.Errorf("too many headers (max %d)", maxHeaderCount)
+		}
 		for k, v := range headers {
 			if k == "" {
 				return fmt.Errorf("header name cannot be empty")
 			}
+			if len(k) > maxHeaderNameLength {
+				return fmt.Errorf("header name too long: %s", k)
+			}
 			if _, ok := v.(string); !ok {
 				return fmt.Errorf("header value must be string for key: %s", k)
 			}
+			if len(v.(string)) > maxHeaderValueLength {
+				return fmt.Errorf("header value too long for key: %s", k)
+			}
+		}
+	}
+
+	if queryString, ok := payload["query_string"].(string); ok {
+		if len(queryString) > maxQueryStringLength {
+			return fmt.Errorf("query_string too long (max %d characters)", maxQueryStringLength)
 		}
 	}
 

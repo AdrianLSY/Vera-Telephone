@@ -17,7 +17,7 @@ import (
 func TestTokenRefreshSuccess(t *testing.T) {
 	oldToken := createTestTokenT(t, time.Now().Add(1*time.Hour))
 	newToken := createTestTokenT(t, time.Now().Add(2*time.Hour))
-	oldClaims, _ := auth.ParseJWTUnsafe(oldToken)
+	oldClaims, _ := auth.ParseJWT(oldToken, testJWTSecret)
 
 	cfg := &config.Config{
 		BackendHost:     "localhost",
@@ -26,7 +26,7 @@ func TestTokenRefreshSuccess(t *testing.T) {
 		Token:           oldToken,
 		PlugboardURL:    "ws://localhost:4000/telephone/websocket",
 		TokenDBPath:     t.TempDir() + "/test.db",
-		SecretKeyBase:   "test-secret-key-base-at-least-64-characters-long-for-security-purposes",
+		SecretKeyBase:   testJWTSecret,
 		DBTimeout:       5 * time.Second,
 		MaxResponseSize: 100 * 1024 * 1024,
 		ChunkSize:       1024 * 1024,
@@ -85,7 +85,7 @@ func TestTokenRefreshSuccess(t *testing.T) {
 // TestTokenRefreshFailure tests token refresh failure handling
 func TestTokenRefreshFailure(t *testing.T) {
 	oldToken := createTestTokenT(t, time.Now().Add(1*time.Hour))
-	oldClaims, _ := auth.ParseJWTUnsafe(oldToken)
+	oldClaims, _ := auth.ParseJWT(oldToken, testJWTSecret)
 
 	cfg := &config.Config{
 		BackendHost:    "localhost",
@@ -93,6 +93,7 @@ func TestTokenRefreshFailure(t *testing.T) {
 		RequestTimeout: 5 * time.Second,
 		Token:          oldToken,
 		PlugboardURL:   "ws://localhost:4000/telephone/websocket",
+		SecretKeyBase:  testJWTSecret,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -132,13 +133,14 @@ func TestTokenRefreshFailure(t *testing.T) {
 // TestGetCurrentTokenThreadSafety tests concurrent access to getCurrentToken
 func TestGetCurrentTokenThreadSafety(t *testing.T) {
 	token := createTestTokenT(t, time.Now().Add(1*time.Hour))
-	claims, _ := auth.ParseJWTUnsafe(token)
+	claims, _ := auth.ParseJWT(token, testJWTSecret)
 
 	cfg := &config.Config{
 		BackendHost:    "localhost",
 		BackendPort:    8080,
 		RequestTimeout: 5 * time.Second,
 		Token:          token,
+		SecretKeyBase:  testJWTSecret,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -177,7 +179,7 @@ func TestGetCurrentTokenThreadSafety(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
 				newToken := createTestTokenT(t, time.Now().Add(time.Duration(index+j)*time.Hour))
-				newClaims, _ := auth.ParseJWTUnsafe(newToken)
+				newClaims, _ := auth.ParseJWT(newToken, testJWTSecret)
 				tel.updateToken(newToken, newClaims)
 				time.Sleep(1 * time.Millisecond)
 			}
@@ -196,13 +198,14 @@ func TestGetCurrentTokenThreadSafety(t *testing.T) {
 // TestUpdateTokenThreadSafety tests concurrent calls to updateToken
 func TestUpdateTokenThreadSafety(t *testing.T) {
 	token := createTestTokenT(t, time.Now().Add(1*time.Hour))
-	claims, _ := auth.ParseJWTUnsafe(token)
+	claims, _ := auth.ParseJWT(token, testJWTSecret)
 
 	cfg := &config.Config{
 		BackendHost:    "localhost",
 		BackendPort:    8080,
 		RequestTimeout: 5 * time.Second,
 		Token:          token,
+		SecretKeyBase:  testJWTSecret,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -228,7 +231,7 @@ func TestUpdateTokenThreadSafety(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
 				newToken := createTestTokenT(t, time.Now().Add(time.Duration(index+j)*time.Hour))
-				newClaims, _ := auth.ParseJWTUnsafe(newToken)
+				newClaims, _ := auth.ParseJWT(newToken, testJWTSecret)
 				tel.updateToken(newToken, newClaims)
 			}
 		}(i)

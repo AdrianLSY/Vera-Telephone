@@ -78,6 +78,11 @@ func NewTokenStore(dbPath string, secretKeyBase string, timeout time.Duration) (
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
+	if err := store.CleanupExpiredTokens(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to cleanup expired tokens: %w", err)
+	}
+
 	return store, nil
 }
 
@@ -87,17 +92,21 @@ func (ts *TokenStore) initSchema() error {
 	defer cancel()
 
 	query := `
-		CREATE TABLE IF NOT EXISTS tokens (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			encrypted_token TEXT NOT NULL,
-			expires_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
+CREATE TABLE IF NOT EXISTS tokens (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+token_hash TEXT NOT NULL,
+encrypted_token TEXT NOT NULL,
+expires_at DATETIME NOT NULL,
+updated_at DATETIME NOT NULL,
+created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+UNIQUE(token_hash)
+);
 
-		CREATE INDEX IF NOT EXISTS idx_tokens_updated_at ON tokens(updated_at DESC);
-		CREATE INDEX IF NOT EXISTS idx_tokens_expires_at ON tokens(expires_at DESC);
-	`
+CREATE INDEX IF NOT EXISTS idx_tokens_updated_at ON tokens(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tokens_expires_at ON tokens(expires_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tokens_expires_updated ON tokens(expires_at DESC, updated_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tokens_token_hash ON tokens(token_hash);
+`
 
 	_, err := ts.db.ExecContext(ctx, query)
 	return err
@@ -196,14 +205,19 @@ func (ts *TokenStore) SaveToken(token string, expiresAt time.Time) error {
 	if err != nil {
 		return fmt.Errorf("failed to encrypt token: %w", err)
 	}
+	tokenHash := hashToken(token)
 
 	// Insert into database
 	query := `
-		INSERT INTO tokens (encrypted_token, expires_at, updated_at)
-		VALUES (?, ?, ?)
-	`
+INSERT INTO tokens (token_hash, encrypted_token, expires_at, updated_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(token_hash) DO UPDATE SET
+encrypted_token=excluded.encrypted_token,
+expires_at=excluded.expires_at,
+updated_at=excluded.updated_at
+`
 
-	_, err = tx.ExecContext(ctx, query, encryptedToken, expiresAt, time.Now())
+	_, err = tx.ExecContext(ctx, query, tokenHash, encryptedToken, expiresAt, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to save token: %w", err)
 	}
@@ -225,12 +239,12 @@ func (ts *TokenStore) LoadToken() (string, time.Time, error) {
 	defer cancel()
 
 	query := `
-		SELECT encrypted_token, expires_at
-		FROM tokens
-		WHERE expires_at > ?
-		ORDER BY updated_at DESC
-		LIMIT 1
-	`
+SELECT encrypted_token, expires_at
+FROM tokens
+WHERE expires_at > ?
+ORDER BY expires_at DESC, updated_at DESC
+LIMIT 1
+`
 
 	var encryptedToken string
 	var expiresAt time.Time
@@ -291,6 +305,11 @@ func (ts *TokenStore) CleanupExpiredTokens() error {
 // Close closes the database connection
 func (ts *TokenStore) Close() error {
 	return ts.db.Close()
+}
+
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return base64.StdEncoding.EncodeToString(sum[:])
 }
 
 // Stats returns statistics about stored tokens

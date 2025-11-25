@@ -193,18 +193,18 @@ func TestIntegrationHeartbeat(t *testing.T) {
 		// Should have sent at least one heartbeat
 	}
 
-	// Check last heartbeat time
+	// Check last heartbeat ack time
 	tel.heartbeatLock.RLock()
-	lastHeartbeat := tel.lastHeartbeat
+	lastHeartbeat := tel.lastHeartbeatAck
 	tel.heartbeatLock.RUnlock()
 
 	if lastHeartbeat.IsZero() {
-		t.Error("Expected heartbeat to have been sent")
+		t.Error("Expected heartbeat to have been acknowledged")
 	}
 
 	elapsed := time.Since(lastHeartbeat)
 	if elapsed > 5*time.Second {
-		t.Errorf("Last heartbeat was too long ago: %v", elapsed)
+		t.Errorf("Last heartbeat ack was too long ago: %v", elapsed)
 	}
 
 	tel.Stop()
