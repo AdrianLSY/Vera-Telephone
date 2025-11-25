@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/verastack/telephone/pkg/auth"
 	"github.com/verastack/telephone/pkg/config"
 )
@@ -94,13 +95,14 @@ func BenchmarkForwardToBackendLargeResponse(b *testing.B) {
 // BenchmarkTokenUpdate benchmarks concurrent token updates
 func BenchmarkTokenUpdate(b *testing.B) {
 	token := createTestToken(b, time.Now().Add(1*time.Hour))
-	claims, _ := auth.ParseJWTUnsafe(token)
+	claims, _ := auth.ParseJWT(token, testJWTSecret)
 
 	cfg := &config.Config{
 		BackendHost:    "localhost",
 		BackendPort:    8080,
 		RequestTimeout: 5 * time.Second,
 		Token:          token,
+		SecretKeyBase:  testJWTSecret,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -121,7 +123,7 @@ func BenchmarkTokenUpdate(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			newToken := createTestToken(b, time.Now().Add(time.Duration(i)*time.Hour))
-			newClaims, _ := auth.ParseJWTUnsafe(newToken)
+			newClaims, _ := auth.ParseJWT(newToken, testJWTSecret)
 			tel.updateToken(newToken, newClaims)
 			i++
 		}
@@ -131,13 +133,14 @@ func BenchmarkTokenUpdate(b *testing.B) {
 // BenchmarkGetCurrentToken benchmarks concurrent token reads
 func BenchmarkGetCurrentToken(b *testing.B) {
 	token := createTestToken(b, time.Now().Add(1*time.Hour))
-	claims, _ := auth.ParseJWTUnsafe(token)
+	claims, _ := auth.ParseJWT(token, testJWTSecret)
 
 	cfg := &config.Config{
 		BackendHost:    "localhost",
 		BackendPort:    8080,
 		RequestTimeout: 5 * time.Second,
 		Token:          token,
+		SecretKeyBase:  testJWTSecret,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -287,7 +290,19 @@ func createMinimalTelephone(tb testing.TB, backendURL string) *Telephone {
 func createTestToken(tb testing.TB, expiry time.Time) string {
 	tb.Helper()
 
-	// Use a simpler token generation for benchmarks
-	tokenFormat := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXN1YmplY3QiLCJqdGkiOiJ0ZXN0LWp0aSIsInBhdGhfaWQiOiJ0ZXN0LXBhdGgtaWQiLCJpYXQiOiVkLCJleHAiOiVkfQ.test-signature"
-	return fmt.Sprintf(tokenFormat, time.Now().Unix(), expiry.Unix())
+	claims := &auth.JWTClaims{
+		Sub:    "test-subject-uuid",
+		JTI:    "test-jti-uuid",
+		PathID: "test-path-id-uuid",
+		IAT:    time.Now().Unix(),
+		Exp:    expiry.Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(testJWTSecret))
+	if err != nil {
+		tb.Fatalf("failed to generate test token: %v", err)
+	}
+
+	return tokenString
 }

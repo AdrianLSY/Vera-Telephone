@@ -67,7 +67,7 @@ func (t *Telephone) reconnect() error {
 					log.Printf("Successfully reconnected with original token")
 
 					// Parse original token to get claims
-					if claims, err := auth.ParseJWTUnsafe(t.originalToken); err == nil {
+					if claims, err := auth.ParseJWT(t.originalToken, t.config.SecretKeyBase); err == nil {
 						t.updateToken(t.originalToken, claims)
 					}
 
@@ -120,7 +120,9 @@ func (t *Telephone) reconnect() error {
 
 		// Reset heartbeat tracking
 		t.heartbeatLock.Lock()
-		t.lastHeartbeat = time.Now()
+		now := time.Now()
+		t.lastHeartbeatSent = now
+		t.lastHeartbeatAck = now
 		t.heartbeatLock.Unlock()
 
 		return nil
@@ -164,30 +166,36 @@ func (t *Telephone) monitorConnection() {
 			} else {
 				// Connection appears healthy, but check heartbeat timeout
 				t.heartbeatLock.RLock()
-				lastHB := t.lastHeartbeat
+				lastAck := t.lastHeartbeatAck
+				lastSent := t.lastHeartbeatSent
 				t.heartbeatLock.RUnlock()
 
-				// If we haven't received a heartbeat ack in 3x the heartbeat interval, consider connection dead
+				// If we haven't received a heartbeat ack for a prolonged period, consider the connection dead
 				heartbeatTimeout := t.config.HeartbeatInterval * 3
-				if !lastHB.IsZero() && time.Since(lastHB) > heartbeatTimeout {
-					log.Printf("Heartbeat timeout detected (last: %v ago, threshold: %v), reconnecting...",
-						time.Since(lastHB), heartbeatTimeout)
-
-					// Force disconnect and reconnect
-					t.client.Disconnect()
-
-					if err := t.reconnect(); err != nil {
-						if err.Error() == "reconnection already in progress" {
-							continue
-						}
-						log.Printf("Reconnection after heartbeat timeout failed: %v", err)
-						continue
+				if !lastSent.IsZero() {
+					// Use the later of last sent or ack to measure staleness
+					staleSince := lastAck
+					if lastAck.Before(lastSent) {
+						staleSince = lastSent
 					}
 
-					log.Printf("Connection restored after heartbeat timeout")
-				} else {
-					// Connection is healthy
-					if consecutiveFailures > 0 {
+					if staleSince.IsZero() || time.Since(staleSince) > heartbeatTimeout {
+						log.Printf("Heartbeat timeout detected (last activity: %v ago, threshold: %v), reconnecting...",
+							time.Since(staleSince), heartbeatTimeout)
+
+						// Force disconnect and reconnect
+						t.client.Disconnect()
+
+						if err := t.reconnect(); err != nil {
+							if err.Error() == "reconnection already in progress" {
+								continue
+							}
+							log.Printf("Reconnection after heartbeat timeout failed: %v", err)
+							continue
+						}
+
+						log.Printf("Connection restored after heartbeat timeout")
+					} else if consecutiveFailures > 0 {
 						consecutiveFailures = 0
 					}
 				}

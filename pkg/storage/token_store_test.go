@@ -347,14 +347,14 @@ func TestTokenStoreCleanupExpiredTokens(t *testing.T) {
 	}
 
 	// Insert expired tokens
-	_, err = store.db.Exec("INSERT INTO tokens (encrypted_token, expires_at, updated_at) VALUES (?, ?, ?)",
-		encrypted1, now.Add(-2*time.Hour), now.Add(-2*time.Hour))
+	_, err = store.db.Exec("INSERT INTO tokens (token_hash, encrypted_token, expires_at, updated_at) VALUES (?, ?, ?, ?)",
+		hashToken(expiredToken1), encrypted1, now.Add(-2*time.Hour), now.Add(-2*time.Hour))
 	if err != nil {
 		store.mu.Unlock()
 		t.Fatalf("failed to insert expired token 1: %v", err)
 	}
-	_, err = store.db.Exec("INSERT INTO tokens (encrypted_token, expires_at, updated_at) VALUES (?, ?, ?)",
-		encrypted2, now.Add(-1*time.Hour), now.Add(-1*time.Hour))
+	_, err = store.db.Exec("INSERT INTO tokens (token_hash, encrypted_token, expires_at, updated_at) VALUES (?, ?, ?, ?)",
+		hashToken(expiredToken2), encrypted2, now.Add(-1*time.Hour), now.Add(-1*time.Hour))
 	if err != nil {
 		store.mu.Unlock()
 		t.Fatalf("failed to insert expired token 2: %v", err)
