@@ -22,6 +22,7 @@ Telephone is a sidecar process that maintains a persistent WebSocket connection 
 - **Chunked Responses** - Automatic chunking for large responses (>1MB)
 - **Fully Configurable** - All timeouts, backoff, and retry settings via environment variables
 - **Token Persistence** - Encrypted token storage with automatic refresh
+- **WebSocket Proxy** - Bidirectional WebSocket proxying to backend services
 
 ---
 
@@ -249,6 +250,10 @@ docker run --rm -it \
 - Header and query parameter forwarding
 - Configurable request timeouts
 - Concurrent request handling
+- **WebSocket proxy** - Bidirectional WebSocket connections to backend services
+  - Transparent subprotocol negotiation
+  - Base64-encoded frame forwarding
+  - Graceful connection lifecycle management
 
 ### Response Handling
 - Standard responses
@@ -347,7 +352,8 @@ Telephone/
 │   ├── channels/       # Phoenix Channels protocol client
 │   ├── config/         # Configuration management
 │   ├── proxy/          # Main proxy engine
-│   └── storage/        # Encrypted token persistence
+│   ├── storage/        # Encrypted token persistence
+│   └── websocket/      # WebSocket proxy connection manager
 ├── test_server/        # Test HTTP server for development
 ├── Dockerfile          # Multi-stage Docker build
 ├── Makefile            # Build automation
@@ -408,6 +414,15 @@ Messages are JSON arrays: `[join_ref, ref, topic, event, payload]`
 - **proxy_req** - Incoming HTTP request from Plugboard
 - **proxy_res** - Response to Plugboard
 - **refresh_token** - Request new JWT token
+
+### WebSocket Proxy Events
+
+- **ws_connect** - Client wants to establish WebSocket connection to backend
+- **ws_connected** - Backend WebSocket connection established
+- **ws_frame** - WebSocket frame (bidirectional, base64-encoded)
+- **ws_close** - Client closed WebSocket connection
+- **ws_closed** - Backend closed WebSocket connection
+- **ws_error** - WebSocket error occurred
 
 ---
 

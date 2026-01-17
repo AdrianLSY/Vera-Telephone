@@ -8,13 +8,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Telephone is a WebSocket-based reverse proxy sidecar for the Vera-Stack. It maintains a persistent connection to the Plugboard reverse proxy server and forwards HTTP requests to local backend services using:
+Telephone is a WebSocket-based reverse proxy sidecar for the Vera-Stack. It maintains a persistent connection to the Plugboard reverse proxy server and forwards HTTP requests and WebSocket connections to local backend services using:
 - Phoenix Channels protocol over WebSocket for communication with Plugboard
 - JWT-based authentication with automatic token refresh at half-life
 - Encrypted token persistence using SQLite and AES-256-GCM
 - Request correlation with UUIDs for concurrent request handling
 - Automatic reconnection with exponential backoff
 - Chunked response support for large payloads (>1MB)
+- **WebSocket proxy support** for bidirectional WebSocket connections to backends
 
 ## Build & Development Commands
 
@@ -51,7 +52,7 @@ make docker-run            # Build and run in Docker
 
 ### Core Components (pkg/)
 
-- **proxy/** (`telephone.go`, `reconnect.go`) - Main proxy engine managing the WebSocket connection lifecycle, request forwarding, and token management. Handles concurrent requests via correlation IDs and implements graceful shutdown.
+- **proxy/** (`telephone.go`, `reconnect.go`, `websocket.go`) - Main proxy engine managing the WebSocket connection lifecycle, request forwarding, and token management. Handles concurrent requests via correlation IDs and implements graceful shutdown. WebSocket proxy handlers forward ws_connect/ws_frame/ws_close events to/from the websocket manager.
 
 - **channels/** (`client.go`, `message.go`) - Phoenix Channels protocol client. Implements the wire format `[join_ref, ref, topic, event, payload]`, handles message serialization, and manages channel joins/leaves.
 
@@ -60,6 +61,8 @@ make docker-run            # Build and run in Docker
 - **config/** (`config.go`) - Configuration management loading all settings from environment variables. Enforces required variables and validates values.
 
 - **storage/** (`token_store.go`) - Encrypted token persistence using SQLite. Tokens are encrypted with AES-256-GCM using a key derived from `SECRET_KEY_BASE` via PBKDF2.
+
+- **websocket/** (`manager.go`, `types.go`) - WebSocket proxy connection manager. Manages backend WebSocket connections with goroutine-per-connection for receiving frames. Handles connection lifecycle, frame forwarding (base64-encoded), and graceful shutdown.
 
 ### Command Entry Points (cmd/)
 
@@ -121,6 +124,35 @@ make docker-run            # Build and run in Docker
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+### WebSocket Proxy Flow
+
+```
+Client                    Plugboard                    Telephone              Backend
+  │                          │                            │                      │
+  │ WebSocket Upgrade        │                            │                      │
+  │ ─────────────────────────►                            │                      │
+  │                          │ ws_connect (Phoenix Ch.)   │                      │
+  │                          │ ───────────────────────────►                      │
+  │                          │                            │ WebSocket Connect    │
+  │                          │                            │ ─────────────────────►
+  │                          │ ws_connected               │ ◄─────Connected──────│
+  │                          │ ◄───────────────────────────                      │
+  │ ◄──101 Switching─────────│                            │                      │
+  │                          │                            │                      │
+  │ ══════════════════════════ Bidirectional Frames ═══════════════════════════ │
+  │                          │                            │                      │
+  │ Frame ──────────────────►│ ws_frame ─────────────────►│ Frame ──────────────►│
+  │ ◄───────────────── Frame │◄──────────────── ws_frame │◄───────────────Frame │
+```
+
+**WebSocket Proxy Events:**
+- `ws_connect` - Client initiates WebSocket connection to backend
+- `ws_connected` - Backend connection established successfully
+- `ws_frame` - Bidirectional frame forwarding (base64-encoded data)
+- `ws_close` - Client closes WebSocket connection
+- `ws_closed` - Backend closes WebSocket connection
+- `ws_error` - Error occurred during WebSocket operation
+
 ## Configuration
 
 All configuration is via environment variables. **No defaults are used - all values must be explicitly set.**
@@ -179,6 +211,14 @@ Telephone implements the Phoenix Channels wire protocol:
 - `proxy_res` - Response sent back to Plugboard
 - `refresh_token` - Request new JWT token from Plugboard
 
+**WebSocket Proxy Events:**
+- `ws_connect` - Client wants to establish WebSocket connection to backend
+- `ws_connected` - Backend WebSocket connection established
+- `ws_frame` - WebSocket frame (bidirectional, base64-encoded data)
+- `ws_close` - Client closed WebSocket connection
+- `ws_closed` - Backend closed WebSocket connection
+- `ws_error` - WebSocket error occurred
+
 ## Testing Guidelines
 
 - Run `go test -race ./...` to detect race conditions
@@ -195,5 +235,6 @@ Telephone uses several goroutines:
 3. **Heartbeat** - Sends periodic heartbeats to keep connection alive
 4. **Connection monitor** - Checks connection health and triggers reconnection
 5. **Token refresh timer** - Schedules token refresh at half-life
+6. **WebSocket receivers** - One goroutine per backend WebSocket connection for receiving frames (`websocket/manager.go`)
 
 All goroutines respect `context.Context` for cancellation and use `sync.WaitGroup` for graceful shutdown.

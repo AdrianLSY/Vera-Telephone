@@ -16,6 +16,7 @@ import (
 	"github.com/verastack/telephone/pkg/channels"
 	"github.com/verastack/telephone/pkg/config"
 	"github.com/verastack/telephone/pkg/storage"
+	"github.com/verastack/telephone/pkg/websocket"
 )
 
 // Valid HTTP methods
@@ -67,6 +68,9 @@ type Telephone struct {
 	pendingRequests map[string]*PendingRequest
 	requestLock     sync.RWMutex
 	activeRequests  sync.WaitGroup
+
+	// WebSocket proxy
+	wsManager *websocket.Manager
 
 	// Lifecycle
 	ctx    context.Context
@@ -136,7 +140,7 @@ func New(cfg *config.Config) (*Telephone, error) {
 	// Build WebSocket URL with token
 	wsURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", cfg.PlugboardURL, token)
 
-	return &Telephone{
+	t := &Telephone{
 		config:          cfg,
 		claims:          claims,
 		client:          channels.NewClient(wsURL),
@@ -147,7 +151,12 @@ func New(cfg *config.Config) (*Telephone, error) {
 		pendingRequests: make(map[string]*PendingRequest),
 		ctx:             ctx,
 		cancel:          cancel,
-	}, nil
+	}
+
+	// Initialize WebSocket manager with Telephone as the event handler
+	t.wsManager = websocket.NewManager(t)
+
+	return t, nil
 }
 
 // Start connects to Plugboard and starts the main loop
@@ -160,6 +169,11 @@ func (t *Telephone) Start() error {
 	// Register event handlers
 	t.client.On("proxy_req", t.handleProxyRequest)
 	t.client.On("heartbeat_ack", t.handleHeartbeatAck)
+
+	// Register WebSocket proxy event handlers
+	t.client.On("ws_connect", t.handleWSConnect)
+	t.client.On("ws_frame", t.handleWSFrame)
+	t.client.On("ws_close", t.handleWSClose)
 
 	// Join the channel
 	if err := t.joinChannel(); err != nil {
@@ -185,6 +199,11 @@ func (t *Telephone) Start() error {
 // Stop gracefully shuts down the Telephone
 func (t *Telephone) Stop() error {
 	log.Println("Stopping Telephone...")
+
+	// Close all backend WebSocket connections first
+	if t.wsManager != nil {
+		t.wsManager.CloseAll()
+	}
 
 	// Cancel context to stop background goroutines
 	t.cancel()
