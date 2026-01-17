@@ -98,6 +98,8 @@ func (m *mockWSChannelsClient) NextRef() string {
 
 func (m *mockWSChannelsClient) UpdateURL(url string) {}
 
+func (m *mockWSChannelsClient) UpdateToken(token string) {}
+
 func (m *mockWSChannelsClient) getLastMessage() *channels.Message {
 	m.mu.Lock()
 	defer m.mu.Unlock()

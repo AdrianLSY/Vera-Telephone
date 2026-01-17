@@ -51,10 +51,28 @@ type ErrorPayload struct {
 	Reason       string `json:"reason"`
 }
 
-// Common error reasons
+// ErrorReason represents a WebSocket error reason sent to Plugboard.
+// These are protocol-level error codes, not Go error types.
+// They are sent as string values in the ws_error event payload.
+type ErrorReason string
+
+// Common error reasons for WebSocket connections.
+// These are sent to Plugboard as part of the ws_error event payload
+// to indicate why a WebSocket operation failed.
 const (
-	ErrConnectionRefused = "connection_refused"
-	ErrConnectionTimeout = "connection_timeout"
-	ErrInvalidUpgrade    = "invalid_upgrade"
-	ErrBackendError      = "backend_error"
+	// ErrConnectionRefused indicates the backend refused the WebSocket connection
+	ErrConnectionRefused ErrorReason = "connection_refused"
+	// ErrConnectionTimeout indicates the connection to the backend timed out
+	ErrConnectionTimeout ErrorReason = "connection_timeout"
+	// ErrInvalidUpgrade indicates the WebSocket upgrade handshake failed
+	ErrInvalidUpgrade ErrorReason = "invalid_upgrade"
+	// ErrBackendError indicates a general error communicating with the backend
+	ErrBackendError ErrorReason = "backend_error"
+	// ErrInvalidFrameData indicates the frame data could not be decoded
+	ErrInvalidFrameData ErrorReason = "invalid_frame_data"
 )
+
+// String returns the string representation of the error reason
+func (e ErrorReason) String() string {
+	return string(e)
+}

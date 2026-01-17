@@ -14,7 +14,7 @@ import (
 // TestNewClient tests client creation
 func TestNewClient(t *testing.T) {
 	url := "ws://localhost:4000/socket/websocket"
-	client := NewClient(url)
+	client := NewClient(url, "test-token", 10*time.Second)
 
 	if client == nil {
 		t.Fatal("Expected non-nil client")
@@ -35,7 +35,7 @@ func TestNewClient(t *testing.T) {
 
 // TestUpdateURL tests URL updates
 func TestUpdateURL(t *testing.T) {
-	client := NewClient("ws://localhost:4000/socket")
+	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
 	newURL := "ws://localhost:5000/socket?token=new"
 	client.UpdateURL(newURL)
@@ -47,7 +47,7 @@ func TestUpdateURL(t *testing.T) {
 
 // TestOnHandler tests event handler registration
 func TestOnHandler(t *testing.T) {
-	client := NewClient("ws://localhost:4000/socket")
+	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
 	called := false
 	handler := func(msg *Message) {
@@ -79,7 +79,7 @@ func TestOnHandler(t *testing.T) {
 
 // TestNextRef tests reference counter
 func TestNextRef(t *testing.T) {
-	client := NewClient("ws://localhost:4000/socket")
+	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
 	ref1 := client.NextRef()
 	ref2 := client.NextRef()
@@ -95,7 +95,7 @@ func TestNextRef(t *testing.T) {
 
 // TestIsConnected tests connection status
 func TestIsConnected(t *testing.T) {
-	client := NewClient("ws://localhost:4000/socket")
+	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
 	if client.IsConnected() {
 		t.Error("Expected client to not be connected initially")
@@ -137,7 +137,7 @@ func TestPushMessage(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client := NewClient(wsURL)
+	client := NewClient(wsURL, "test-token", 10*time.Second)
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
@@ -200,7 +200,7 @@ func TestRequestResponse(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client := NewClient(wsURL)
+	client := NewClient(wsURL, "test-token", 10*time.Second)
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
@@ -248,7 +248,7 @@ func TestConcurrentPush(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client := NewClient(wsURL)
+	client := NewClient(wsURL, "test-token", 10*time.Second)
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
@@ -304,7 +304,7 @@ func TestClose(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client := NewClient(wsURL)
+	client := NewClient(wsURL, "test-token", 10*time.Second)
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
@@ -335,7 +335,7 @@ func TestClose(t *testing.T) {
 
 // TestConnectWithInvalidURL tests connection error handling
 func TestConnectWithInvalidURL(t *testing.T) {
-	client := NewClient("ws://invalid-host-that-does-not-exist:9999/socket")
+	client := NewClient("ws://invalid-host-that-does-not-exist:9999/socket", "test-token", 5*time.Second)
 
 	err := client.Connect()
 	if err == nil {
@@ -346,7 +346,7 @@ func TestConnectWithInvalidURL(t *testing.T) {
 
 // TestPushWithoutConnection tests error handling when not connected
 func TestPushWithoutConnection(t *testing.T) {
-	client := NewClient("ws://localhost:9999/socket")
+	client := NewClient("ws://localhost:9999/socket", "test-token", 10*time.Second)
 
 	msg := NewMessage("test:topic", "test_event", "1", map[string]interface{}{})
 
@@ -382,7 +382,7 @@ func TestMessageHandler(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client := NewClient(wsURL)
+	client := NewClient(wsURL, "test-token", 10*time.Second)
 
 	// Register handler
 	client.On("custom_event", func(msg *Message) {
@@ -408,7 +408,7 @@ func TestMessageHandler(t *testing.T) {
 
 // TestRefCounterIncrement tests that ref counter increments
 func TestRefCounterIncrement(t *testing.T) {
-	client := NewClient("ws://localhost:4000/socket")
+	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
 	refs := make(map[string]bool)
 
@@ -448,7 +448,7 @@ func TestContextCancellation(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client := NewClient(wsURL)
+	client := NewClient(wsURL, "test-token", 10*time.Second)
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
@@ -470,7 +470,7 @@ func TestContextCancellation(t *testing.T) {
 
 // TestMultipleHandlers tests multiple handlers for the same event
 func TestMultipleHandlers(t *testing.T) {
-	client := NewClient("ws://localhost:4000/socket")
+	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
 	count := 0
 	mu := sync.Mutex{}

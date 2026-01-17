@@ -2,70 +2,79 @@ package main
 
 import (
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/joho/godotenv"
 	"github.com/verastack/telephone/pkg/config"
+	"github.com/verastack/telephone/pkg/logger"
 	"github.com/verastack/telephone/pkg/proxy"
 )
 
 var (
-	envFile = flag.String("env", ".env", "Path to .env file")
-	version = "dev"
+	envFile  = flag.String("env", ".env", "Path to .env file")
+	logLevel = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	logFmt   = flag.String("log-format", "text", "Log format (text, json)")
+	version  = "dev"
 )
 
 func main() {
 	flag.Parse()
 
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Printf("Telephone v%s starting...", version)
+	// Initialize logger
+	logger.Init(*logLevel, *logFmt)
+
+	logger.Info("Telephone starting", "version", version)
 
 	// Load .env file if it exists
 	if _, err := os.Stat(*envFile); err == nil {
-		log.Printf("Loading environment from %s", *envFile)
+		logger.Info("Loading environment", "file", *envFile)
 		if err := godotenv.Load(*envFile); err != nil {
-			log.Fatalf("Error loading .env file: %v", err)
+			logger.Error("Failed to load .env file", "error", err)
+			os.Exit(1)
 		}
 	}
 
 	// Load configuration
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
-		log.Fatalf("Configuration error: %v", err)
+		logger.Error("Configuration error", "error", err)
+		os.Exit(1)
 	}
 
-	log.Printf("Configuration loaded:")
-	log.Printf("  Plugboard URL: %s", cfg.PlugboardURL)
-	log.Printf("  Backend: %s", cfg.BackendURL())
+	logger.Info("Configuration loaded",
+		"plugboard_url", cfg.PlugboardURL,
+		"backend", cfg.BackendURL(),
+	)
 
 	// Create Telephone instance
 	tel, err := proxy.New(cfg)
 	if err != nil {
-		log.Fatalf("Failed to connect to Plugboard: %v", err)
+		logger.Error("Failed to create Telephone instance", "error", err)
+		os.Exit(1)
 	}
 
 	// Start the client
 	if err := tel.Start(); err != nil {
-		log.Fatalf("Failed to start Telephone: %v", err)
+		logger.Error("Failed to start Telephone", "error", err)
+		os.Exit(1)
 	}
 
 	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	log.Println("Telephone is running. Press Ctrl+C to stop.")
+	logger.Info("Telephone is running. Press Ctrl+C to stop.")
 
 	// Wait for signal
 	sig := <-sigChan
-	log.Printf("Received signal: %v", sig)
+	logger.Info("Received signal, shutting down", "signal", sig.String())
 
 	// Graceful shutdown
 	if err := tel.Stop(); err != nil {
-		log.Printf("Error during shutdown: %v", err)
+		logger.Error("Error during shutdown", "error", err)
 	}
 
-	log.Println("Telephone shut down successfully")
+	logger.Info("Telephone shut down successfully")
 }

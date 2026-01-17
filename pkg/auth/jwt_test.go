@@ -492,28 +492,28 @@ func TestJWTClaimsTimeUntilHalfLife(t *testing.T) {
 
 func TestJWTClaimsIsAtHalfLife(t *testing.T) {
 	tests := []struct {
-		name     string
-		issuedAt time.Time
+		name      string
+		issuedAt  time.Time
 		expiresAt time.Time
-		expected bool
+		expected  bool
 	}{
 		{
-			name:     "new token",
-			issuedAt: time.Now(),
+			name:      "new token",
+			issuedAt:  time.Now(),
 			expiresAt: time.Now().Add(1 * time.Hour),
-			expected: false,
+			expected:  false,
 		},
 		{
-			name:     "token past half-life",
-			issuedAt: time.Now().Add(-31 * time.Minute),
+			name:      "token past half-life",
+			issuedAt:  time.Now().Add(-31 * time.Minute),
 			expiresAt: time.Now().Add(29 * time.Minute),
-			expected: true,
+			expected:  true,
 		},
 		{
-			name:     "token exactly at half-life",
-			issuedAt: time.Now().Add(-30 * time.Minute),
+			name:      "token exactly at half-life",
+			issuedAt:  time.Now().Add(-30 * time.Minute),
 			expiresAt: time.Now().Add(30 * time.Minute),
-			expected: true,
+			expected:  true,
 		},
 	}
 

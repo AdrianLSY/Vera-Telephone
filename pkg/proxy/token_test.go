@@ -73,11 +73,10 @@ func TestTokenRefreshSuccess(t *testing.T) {
 		t.Errorf("Expected token to be updated to %s, got %s", newToken, updatedToken)
 	}
 
-	// Verify WebSocket URL was updated
+	// Verify client token was updated via UpdateToken (not in URL for security)
 	mockClient.mu.Lock()
-	expectedURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", cfg.PlugboardURL, newToken)
-	if mockClient.lastUpdatedURL != expectedURL {
-		t.Errorf("Expected URL to be updated to %s, got %s", expectedURL, mockClient.lastUpdatedURL)
+	if mockClient.lastUpdatedToken != newToken {
+		t.Errorf("Expected client token to be updated to %s, got %s", newToken, mockClient.lastUpdatedToken)
 	}
 	mockClient.mu.Unlock()
 }

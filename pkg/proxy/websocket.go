@@ -2,18 +2,26 @@ package proxy
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/verastack/telephone/pkg/channels"
+	"github.com/verastack/telephone/pkg/logger"
 	"github.com/verastack/telephone/pkg/websocket"
 )
 
 // handleWSConnect handles the ws_connect event from Plugboard
 func (t *Telephone) handleWSConnect(msg *channels.Message) {
+	// Check if we're shutting down
+	select {
+	case <-t.ctx.Done():
+		logger.Debug("ws_connect: ignoring request during shutdown")
+		return
+	default:
+	}
+
 	// Parse payload
 	connectionID, ok := msg.Payload["connection_id"].(string)
 	if !ok || connectionID == "" {
-		log.Printf("ws_connect: missing or invalid connection_id")
+		logger.Error("ws_connect: missing or invalid connection_id")
 		return
 	}
 
@@ -30,7 +38,10 @@ func (t *Telephone) handleWSConnect(msg *channels.Message) {
 		}
 	}
 
-	log.Printf("WebSocket connect request [%s]: path=%s", connectionID, path)
+	logger.Info("WebSocket connect request",
+		"connection_id", connectionID,
+		"path", path,
+	)
 
 	// Build backend WebSocket URL
 	backendURL := t.buildWSBackendURL(path, queryString)
@@ -38,7 +49,10 @@ func (t *Telephone) handleWSConnect(msg *channels.Message) {
 	// Attempt connection
 	protocol, err := t.wsManager.Connect(connectionID, backendURL, headers)
 	if err != nil {
-		log.Printf("WebSocket connection failed [%s]: %v", connectionID, err)
+		logger.Error("WebSocket connection failed",
+			"connection_id", connectionID,
+			"error", err,
+		)
 		t.sendWSError(connectionID, websocket.ErrConnectionRefused)
 		return
 	}
@@ -49,9 +63,17 @@ func (t *Telephone) handleWSConnect(msg *channels.Message) {
 
 // handleWSFrame handles the ws_frame event from Plugboard (client -> backend)
 func (t *Telephone) handleWSFrame(msg *channels.Message) {
+	// Check if we're shutting down
+	select {
+	case <-t.ctx.Done():
+		logger.Debug("ws_frame: ignoring request during shutdown")
+		return
+	default:
+	}
+
 	connectionID, ok := msg.Payload["connection_id"].(string)
 	if !ok || connectionID == "" {
-		log.Printf("ws_frame: missing or invalid connection_id")
+		logger.Error("ws_frame: missing or invalid connection_id")
 		return
 	}
 
@@ -63,14 +85,20 @@ func (t *Telephone) handleWSFrame(msg *channels.Message) {
 	// Decode base64 data
 	data, err := websocket.DecodeBase64(dataB64)
 	if err != nil {
-		log.Printf("ws_frame: failed to decode base64 data [%s]: %v", connectionID, err)
-		t.sendWSError(connectionID, "invalid_frame_data")
+		logger.Error("ws_frame: failed to decode base64 data",
+			"connection_id", connectionID,
+			"error", err,
+		)
+		t.sendWSError(connectionID, websocket.ErrInvalidFrameData)
 		return
 	}
 
 	// Forward frame to backend
 	if err := t.wsManager.SendFrame(connectionID, opcode, data); err != nil {
-		log.Printf("ws_frame: failed to send frame [%s]: %v", connectionID, err)
+		logger.Error("ws_frame: failed to send frame",
+			"connection_id", connectionID,
+			"error", err,
+		)
 		t.sendWSError(connectionID, websocket.ErrBackendError)
 		return
 	}
@@ -78,9 +106,12 @@ func (t *Telephone) handleWSFrame(msg *channels.Message) {
 
 // handleWSClose handles the ws_close event from Plugboard (client closed)
 func (t *Telephone) handleWSClose(msg *channels.Message) {
+	// Note: We don't check context here because close requests should be processed
+	// even during shutdown to ensure clean connection termination
+
 	connectionID, ok := msg.Payload["connection_id"].(string)
 	if !ok || connectionID == "" {
-		log.Printf("ws_close: missing or invalid connection_id")
+		logger.Error("ws_close: missing or invalid connection_id")
 		return
 	}
 
@@ -91,11 +122,18 @@ func (t *Telephone) handleWSClose(msg *channels.Message) {
 
 	reason, _ := msg.Payload["reason"].(string)
 
-	log.Printf("WebSocket close request [%s]: code=%d reason=%s", connectionID, code, reason)
+	logger.Info("WebSocket close request",
+		"connection_id", connectionID,
+		"code", code,
+		"reason", reason,
+	)
 
 	// Close the backend connection
 	if err := t.wsManager.Close(connectionID, code, reason); err != nil {
-		log.Printf("ws_close: failed to close connection [%s]: %v", connectionID, err)
+		logger.Error("ws_close: failed to close connection",
+			"connection_id", connectionID,
+			"error", err,
+		)
 	}
 }
 
@@ -111,7 +149,7 @@ func (t *Telephone) OnClose(connectionID string, code int, reason string) {
 
 // OnError implements websocket.EventHandler - called when backend connection errors
 func (t *Telephone) OnError(connectionID string, reason string) {
-	t.sendWSError(connectionID, reason)
+	t.sendWSErrorRaw(connectionID, reason)
 }
 
 // sendWSConnected sends ws_connected event to Plugboard
@@ -129,11 +167,17 @@ func (t *Telephone) sendWSConnected(connectionID, protocol string) {
 	msg := channels.NewMessage(topic, "ws_connected", ref, payload)
 
 	if err := t.client.Send(msg); err != nil {
-		log.Printf("Failed to send ws_connected [%s]: %v", connectionID, err)
+		logger.Error("Failed to send ws_connected",
+			"connection_id", connectionID,
+			"error", err,
+		)
 		return
 	}
 
-	log.Printf("Sent ws_connected [%s] protocol=%s", connectionID, protocol)
+	logger.Debug("Sent ws_connected",
+		"connection_id", connectionID,
+		"protocol", protocol,
+	)
 }
 
 // sendWSFrame sends ws_frame event to Plugboard (backend -> client)
@@ -150,7 +194,10 @@ func (t *Telephone) sendWSFrame(connectionID string, opcode websocket.Opcode, da
 	msg := channels.NewMessage(topic, "ws_frame", ref, payload)
 
 	if err := t.client.Send(msg); err != nil {
-		log.Printf("Failed to send ws_frame [%s]: %v", connectionID, err)
+		logger.Error("Failed to send ws_frame",
+			"connection_id", connectionID,
+			"error", err,
+		)
 		return
 	}
 }
@@ -169,15 +216,28 @@ func (t *Telephone) sendWSClosed(connectionID string, code int, reason string) {
 	msg := channels.NewMessage(topic, "ws_closed", ref, payload)
 
 	if err := t.client.Send(msg); err != nil {
-		log.Printf("Failed to send ws_closed [%s]: %v", connectionID, err)
+		logger.Error("Failed to send ws_closed",
+			"connection_id", connectionID,
+			"error", err,
+		)
 		return
 	}
 
-	log.Printf("Sent ws_closed [%s] code=%d reason=%s", connectionID, code, reason)
+	logger.Debug("Sent ws_closed",
+		"connection_id", connectionID,
+		"code", code,
+		"reason", reason,
+	)
 }
 
-// sendWSError sends ws_error event to Plugboard
-func (t *Telephone) sendWSError(connectionID, reason string) {
+// sendWSError sends ws_error event to Plugboard with a typed error reason
+func (t *Telephone) sendWSError(connectionID string, reason websocket.ErrorReason) {
+	t.sendWSErrorRaw(connectionID, reason.String())
+}
+
+// sendWSErrorRaw sends ws_error event to Plugboard with a raw string reason
+// This is used for error messages from the underlying WebSocket library
+func (t *Telephone) sendWSErrorRaw(connectionID string, reason string) {
 	topic := fmt.Sprintf("telephone:%s", t.claims.PathID)
 	ref := t.client.NextRef()
 
@@ -189,11 +249,17 @@ func (t *Telephone) sendWSError(connectionID, reason string) {
 	msg := channels.NewMessage(topic, "ws_error", ref, payload)
 
 	if err := t.client.Send(msg); err != nil {
-		log.Printf("Failed to send ws_error [%s]: %v", connectionID, err)
+		logger.Error("Failed to send ws_error",
+			"connection_id", connectionID,
+			"error", err,
+		)
 		return
 	}
 
-	log.Printf("Sent ws_error [%s] reason=%s", connectionID, reason)
+	logger.Debug("Sent ws_error",
+		"connection_id", connectionID,
+		"reason", reason,
+	)
 }
 
 // buildWSBackendURL constructs the WebSocket URL for the backend

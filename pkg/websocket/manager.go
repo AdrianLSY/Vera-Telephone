@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/verastack/telephone/pkg/logger"
 )
 
 // EventHandler is called when events occur on backend WebSocket connections
@@ -122,7 +122,11 @@ func (m *Manager) Connect(connectionID, url string, headers map[string]string) (
 	m.wg.Add(1)
 	go m.receiveLoop(c)
 
-	log.Printf("WebSocket connection established [%s] -> %s (protocol: %s)", connectionID, url, selectedProtocol)
+	logger.Info("WebSocket connection established",
+		"connection_id", connectionID,
+		"url", url,
+		"protocol", selectedProtocol,
+	)
 
 	return selectedProtocol, nil
 }
@@ -190,7 +194,7 @@ func (m *Manager) Close(connectionID string, code int, reason string) error {
 
 // CloseAll closes all backend WebSocket connections
 func (m *Manager) CloseAll() {
-	log.Printf("Closing all WebSocket connections...")
+	logger.Info("Closing all WebSocket connections...")
 
 	// Cancel parent context to stop all receive loops
 	m.cancel()
@@ -211,7 +215,7 @@ func (m *Manager) CloseAll() {
 	// Wait for all receiver goroutines to exit
 	m.wg.Wait()
 
-	log.Printf("All WebSocket connections closed")
+	logger.Info("All WebSocket connections closed")
 }
 
 // closeConnection closes a single connection
@@ -244,7 +248,11 @@ func (m *Manager) closeConnection(c *connection, code int, reason string) error 
 	delete(m.connections, c.id)
 	m.mu.Unlock()
 
-	log.Printf("WebSocket connection closed [%s] code=%d reason=%s", c.id, code, reason)
+	logger.Debug("WebSocket connection closed",
+		"connection_id", c.id,
+		"code", code,
+		"reason", reason,
+	)
 
 	return err
 }
@@ -277,10 +285,17 @@ func (m *Manager) receiveLoop(c *connection) {
 
 			// Handle close error
 			if closeErr, ok := err.(*websocket.CloseError); ok {
-				log.Printf("Backend WebSocket closed [%s]: code=%d reason=%s", c.id, closeErr.Code, closeErr.Text)
+				logger.Info("Backend WebSocket closed",
+					"connection_id", c.id,
+					"code", closeErr.Code,
+					"reason", closeErr.Text,
+				)
 				m.handler.OnClose(c.id, closeErr.Code, closeErr.Text)
 			} else {
-				log.Printf("Backend WebSocket error [%s]: %v", c.id, err)
+				logger.Error("Backend WebSocket error",
+					"connection_id", c.id,
+					"error", err,
+				)
 				m.handler.OnError(c.id, err.Error())
 			}
 			return
@@ -298,7 +313,10 @@ func (m *Manager) receiveLoop(c *connection) {
 		case websocket.PongMessage:
 			opcode = OpcodePong
 		default:
-			log.Printf("Unknown message type from backend [%s]: %d", c.id, messageType)
+			logger.Warn("Unknown message type from backend",
+				"connection_id", c.id,
+				"message_type", messageType,
+			)
 			continue
 		}
 

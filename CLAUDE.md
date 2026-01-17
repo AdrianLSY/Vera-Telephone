@@ -178,6 +178,7 @@ All configuration is via environment variables. **No defaults are used - all val
 | `MAX_RESPONSE_SIZE` | Maximum response size in bytes | `104857600` |
 | `CHUNK_SIZE` | Chunk size for large responses | `1048576` |
 | `DB_TIMEOUT` | Database operation timeout | `10s` |
+| `HEALTH_CHECK_PORT` | Port for health check HTTP server (optional) | `8081` |
 
 ## Token Storage Schema
 
@@ -238,3 +239,13 @@ Telephone uses several goroutines:
 6. **WebSocket receivers** - One goroutine per backend WebSocket connection for receiving frames (`websocket/manager.go`)
 
 All goroutines respect `context.Context` for cancellation and use `sync.WaitGroup` for graceful shutdown.
+
+## Health Check Endpoints
+
+When `HEALTH_CHECK_PORT` is set, Telephone exposes HTTP health check endpoints:
+
+- `/health` or `/healthz` - Overall health status (JSON response with status, uptime, token expiry)
+- `/ready` or `/readyz` - Readiness probe (returns 200 if connected to Plugboard and token is valid)
+- `/live` or `/livez` - Liveness probe (always returns 200 if process is running)
+
+These endpoints are Kubernetes-compatible and can be used for container orchestration.

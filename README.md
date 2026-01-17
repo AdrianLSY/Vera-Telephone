@@ -210,9 +210,11 @@ docker run --rm -it \
 
 **All configuration variables are required - no defaults are provided.**
 
+See [`.env.example`](.env.example) for a complete example configuration with detailed comments.
+
 | Variable                      | Description                                    | Example Value                             |
 |-------------------------------|------------------------------------------------|-------------------------------------------|
-| `TELEPHONE_TOKEN`             | JWT token from Plugboard                       | `eyJhbGci...`                             |
+| `TELEPHONE_TOKEN`             | JWT token from Plugboard (optional*)           | `eyJhbGci...`                             |
 | `SECRET_KEY_BASE`             | Secret key for encrypting tokens (64 char hex) | `6a5c5a634bc0c4c7...`                     |
 | `PLUGBOARD_URL`               | WebSocket URL to Plugboard                     | `ws://localhost:4000/telephone/websocket` |
 | `BACKEND_HOST`                | Backend hostname                               | `localhost`                               |
@@ -229,6 +231,9 @@ docker run --rm -it \
 | `MAX_RESPONSE_SIZE`           | Maximum response size in bytes                 | `104857600`                               |
 | `CHUNK_SIZE`                  | Chunk size for streaming responses             | `1048576`                                 |
 | `DB_TIMEOUT`                  | Database operation timeout                     | `10s`                                     |
+| `HEALTH_CHECK_PORT`           | Port for health check HTTP server (optional)   | `8081`                                    |
+
+\* `TELEPHONE_TOKEN` is optional if a valid token exists in the database from a previous run.
 
 ---
 
@@ -271,6 +276,7 @@ docker run --rm -it \
 - Connection status reporting
 - Token expiry tracking
 - Structured logging
+- **Health check endpoints** (optional) - Kubernetes-compatible `/health`, `/ready`, `/live` endpoints
 
 ---
 
@@ -437,8 +443,52 @@ Messages are JSON arrays: `[join_ref, ref, topic, event, payload]`
 | Heartbeat Timeout | - | 3x `HEARTBEAT_INTERVAL` | Connection considered dead if no ack |
 | Database Timeout | `DB_TIMEOUT` | 10s | SQLite operation timeout |
 | Backend Protocol | `BACKEND_SCHEME` | http/https | Supports both protocols |
+| Health Check Port | `HEALTH_CHECK_PORT` | 8081 | Optional - set to enable health endpoints |
 
 **Note:** All configuration must be explicitly set via environment variables - no defaults are provided.
+
+---
+
+## Health Check Endpoints
+
+When `HEALTH_CHECK_PORT` is set, Telephone exposes HTTP health check endpoints for Kubernetes and other orchestration systems:
+
+| Endpoint | Description | Success | Failure |
+|----------|-------------|---------|---------|
+| `/health` or `/healthz` | Overall health status (JSON) | 200 OK | 503 Service Unavailable |
+| `/ready` or `/readyz` | Readiness probe (connected + valid token) | 200 OK | 503 Service Unavailable |
+| `/live` or `/livez` | Liveness probe (process running) | 200 OK | - |
+
+### Health Response Format
+
+```json
+{
+  "status": "healthy",
+  "connected": true,
+  "uptime": "1h30m45s",
+  "last_heartbeat": "5s ago",
+  "token_expiry": "45m30s",
+  "version": "1.0.0"
+}
+```
+
+### Kubernetes Example
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /livez
+    port: 8081
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8081
+  initialDelaySeconds: 5
+  periodSeconds: 5
+```
 
 ## License
 

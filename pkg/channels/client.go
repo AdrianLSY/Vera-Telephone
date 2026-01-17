@@ -3,7 +3,6 @@ package channels
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -11,14 +10,20 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/verastack/telephone/pkg/logger"
 )
 
 // Client represents a Phoenix Channels WebSocket client
 type Client struct {
 	url      string
+	token    string // JWT token for authentication (sent via header, not URL)
 	conn     *websocket.Conn
 	connLock sync.RWMutex
 	urlMu    sync.RWMutex // Protects URL updates
+	tokenMu  sync.RWMutex // Protects token updates
+
+	// Connection settings
+	connectTimeout time.Duration
 
 	// Message handling
 	handlers    map[string]MessageHandler
@@ -46,11 +51,15 @@ type Client struct {
 type MessageHandler func(*Message)
 
 // NewClient creates a new Phoenix Channels client
-func NewClient(url string) *Client {
+// The token is passed separately and sent via Authorization header (not in URL query params)
+// for security - tokens in URLs can leak via logs, referrer headers, and browser history
+func NewClient(url string, token string, connectTimeout time.Duration) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Client{
 		url:             url,
+		token:           token,
+		connectTimeout:  connectTimeout,
 		handlers:        make(map[string]MessageHandler),
 		pendingRequests: make(map[string]chan *Message),
 		ctx:             ctx,
@@ -58,11 +67,25 @@ func NewClient(url string) *Client {
 	}
 }
 
-// UpdateURL updates the WebSocket URL (useful for reconnection with new tokens)
+// UpdateURL updates the WebSocket URL (useful for reconnection)
 func (c *Client) UpdateURL(newURL string) {
 	c.urlMu.Lock()
 	defer c.urlMu.Unlock()
 	c.url = newURL
+}
+
+// UpdateToken updates the authentication token (used after token refresh)
+func (c *Client) UpdateToken(newToken string) {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	c.token = newToken
+}
+
+// GetToken returns the current token
+func (c *Client) GetToken() string {
+	c.tokenMu.RLock()
+	defer c.tokenMu.RUnlock()
+	return c.token
 }
 
 // GetURL returns the current WebSocket URL
@@ -92,13 +115,18 @@ func (c *Client) Connect() error {
 	// Get current URL (may have been updated for reconnection)
 	currentURL := c.GetURL()
 
-	// Extract token from URL if present and add as header instead
-	// This is more secure than query parameters which get logged
-	headers := c.extractAndBuildHeaders(currentURL)
+	// Build headers with token for authentication
+	// Token is sent via Authorization header (not in URL) to prevent leakage in logs
+	headers := c.buildAuthHeaders()
 
-	conn, _, err := websocket.DefaultDialer.Dial(currentURL, headers)
+	// Create dialer with timeout
+	dialer := websocket.Dialer{
+		HandshakeTimeout: c.connectTimeout,
+	}
+
+	conn, _, err := dialer.Dial(currentURL, headers)
 	if err != nil {
-		return fmt.Errorf("failed to connect to %s: %w", c.url, err)
+		return fmt.Errorf("failed to connect to %s: %w", c.GetCleanURL(), err)
 	}
 
 	c.conn = conn
@@ -112,7 +140,7 @@ func (c *Client) Connect() error {
 	go c.readLoop()
 
 	// Use clean URL for logging to avoid token leakage
-	log.Printf("Connected to %s", c.GetCleanURL())
+	logger.Info("Connected to WebSocket", "url", c.GetCleanURL())
 	return nil
 }
 
@@ -232,18 +260,22 @@ func (c *Client) readLoop() {
 		}
 		c.connLock.Unlock()
 		c.connected.Store(false)
-		log.Printf("readLoop exited, connection cleaned up")
+		logger.Debug("readLoop exited, connection cleaned up")
 	}()
 
 	// Start a goroutine to monitor context cancellation and close connection
 	// This ensures ReadMessage() is unblocked when context is cancelled
+	// Use a WaitGroup to ensure this goroutine exits before readLoop returns
+	var contextWg sync.WaitGroup
 	contextDone := make(chan struct{})
+	contextWg.Add(1)
 	go func() {
+		defer contextWg.Done()
 		select {
 		case <-c.readCtx.Done():
-			log.Printf("readLoop context cancelled, closing connection")
+			logger.Debug("readLoop context cancelled, closing connection")
 		case <-c.ctx.Done():
-			log.Printf("main context cancelled, closing connection")
+			logger.Debug("main context cancelled, closing connection")
 		case <-contextDone:
 			return
 		}
@@ -255,7 +287,10 @@ func (c *Client) readLoop() {
 		}
 		c.connLock.Unlock()
 	}()
-	defer close(contextDone)
+	defer func() {
+		close(contextDone)
+		contextWg.Wait() // Ensure context monitoring goroutine exits
+	}()
 
 	for {
 		c.connLock.RLock()
@@ -263,7 +298,7 @@ func (c *Client) readLoop() {
 		c.connLock.RUnlock()
 
 		if conn == nil {
-			log.Printf("readLoop: connection is nil")
+			logger.Debug("readLoop: connection is nil")
 			return
 		}
 
@@ -272,14 +307,14 @@ func (c *Client) readLoop() {
 			// Check if we're shutting down gracefully
 			select {
 			case <-c.readCtx.Done():
-				log.Printf("readLoop cancelled")
+				logger.Debug("readLoop cancelled")
 				return
 			case <-c.ctx.Done():
-				log.Printf("readLoop main context cancelled")
+				logger.Debug("readLoop main context cancelled")
 				return
 			default:
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Printf("WebSocket read error: %v", err)
+					logger.Error("WebSocket read error", "error", err)
 				}
 				return
 			}
@@ -288,7 +323,7 @@ func (c *Client) readLoop() {
 		// Parse message
 		msg, err := FromJSON(data)
 		if err != nil {
-			log.Printf("Failed to parse message: %v", err)
+			logger.Error("Failed to parse message", "error", err)
 			continue
 		}
 
@@ -309,7 +344,7 @@ func (c *Client) handleMessage(msg *Message) {
 			select {
 			case replyChan <- msg:
 			default:
-				log.Printf("Reply channel full for ref %s", msg.Ref)
+				logger.Warn("Reply channel full", "ref", msg.Ref)
 			}
 			return
 		}
@@ -323,32 +358,26 @@ func (c *Client) handleMessage(msg *Message) {
 	if exists {
 		go handler(msg)
 	} else {
-		log.Printf("No handler for event: %s", msg.Event)
+		logger.Debug("No handler for event", "event", msg.Event)
 	}
 }
 
-// extractAndBuildHeaders extracts token from URL query params and builds HTTP headers
-// This prevents token leakage in logs by using headers instead of query parameters
-func (c *Client) extractAndBuildHeaders(wsURL string) http.Header {
+// buildAuthHeaders builds HTTP headers for WebSocket authentication
+// Token is sent via Authorization header to prevent leakage in logs, URLs, and referrer headers
+func (c *Client) buildAuthHeaders() http.Header {
 	headers := http.Header{}
 
-	parsedURL, err := url.Parse(wsURL)
-	if err != nil {
-		// If URL parsing fails, return empty headers
-		return headers
-	}
+	// Add token as Authorization header (secure - not visible in logs or URLs)
+	c.tokenMu.RLock()
+	token := c.token
+	c.tokenMu.RUnlock()
 
-	// Extract token from query parameters
-	queryParams := parsedURL.Query()
-	if token := queryParams.Get("token"); token != "" {
-		// Add token as Authorization header instead of query param
+	if token != "" {
 		headers.Set("Authorization", "Bearer "+token)
 	}
 
-	// Add vsn if present
-	if vsn := queryParams.Get("vsn"); vsn != "" {
-		headers.Set("X-Phoenix-VSN", vsn)
-	}
+	// Add Phoenix version header
+	headers.Set("X-Phoenix-VSN", "2.0.0")
 
 	return headers
 }
