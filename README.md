@@ -2,7 +2,7 @@
 
 **A lightweight WebSocket-based reverse proxy sidecar for the Vera Reverse Proxy**
 
-[![Go Version](https://img.shields.io/badge/go-1.23-blue.svg)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/go-1.24-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![CI](https://github.com/AdrianLSY/Vera-Telephone/actions/workflows/ci.yml/badge.svg)](https://github.com/AdrianLSY/Vera-Telephone/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/AdrianLSY/Vera-Telephone/branch/main/graph/badge.svg)](https://codecov.io/gh/AdrianLSY/Vera-Telephone)
@@ -29,8 +29,8 @@ Telephone is a sidecar process that maintains a persistent WebSocket connection 
 
 ### Prerequisites
 
-- Go 1.23+
-- Plugboard server running (default: `localhost:4000`)
+- Go 1.24+
+- Plugboard server running (e.g., `localhost:4000`)
 - JWT token from Plugboard
 
 ### Installation
@@ -200,6 +200,7 @@ docker run --rm -it \
 ```
 
 **Note**: The volume mount (`-v telephone-data:/data`) is recommended to persist the token database across container restarts.
+
 ---
 
 ## Configuration Reference
@@ -285,22 +286,74 @@ make docker-run    # Build and run in Docker
 
 ---
 
+## Architecture
+
+### Core Components
+
+**Telephone** (`pkg/proxy/telephone.go`)
+- Main proxy engine managing WebSocket connection lifecycle
+- Handles concurrent requests via UUID-based correlation
+- Implements token management with automatic refresh at half-life
+- Graceful shutdown waiting for active requests to complete
+- Exponential backoff reconnection with configurable limits
+
+**ChannelsClient** (`pkg/channels/client.go`)
+- Full Phoenix Channels protocol implementation over WebSocket
+- Message format: `[join_ref, ref, topic, event, payload]`
+- Handles channel join/leave, heartbeat, and message routing
+- Thread-safe connection management with read/write separation
+
+**JWTClaims** (`pkg/auth/jwt.go`)
+- JWT token parsing and claim extraction
+- Extracts path_id and expiry for connection routing
+- Token validation delegated to Plugboard server
+
+**Config** (`pkg/config/config.go`)
+- Environment-based configuration loading
+- Strict validation - all required values must be set
+- Duration parsing for timeout/interval values
+
+**TokenStore** (`pkg/storage/token_store.go`)
+- Encrypted token persistence using SQLite
+- AES-256-GCM authenticated encryption
+- Key derivation via PBKDF2 (100,000 iterations)
+- Automatic cleanup of expired tokens
+
+### Request Correlation
+
+Each proxied request receives a unique correlation ID, allowing multiple concurrent requests over a single WebSocket connection:
+
+```go
+type PendingRequest struct {
+    RequestID    string
+    ResponseChan chan *ProxyResponse
+    CancelFunc   context.CancelFunc
+}
+```
+
+---
+
 ## Development
 
 ### Project Structure
 
 ```
 Telephone/
-├── cmd/telephone/       # CLI application
+├── cmd/
+│   ├── telephone/       # Main CLI application
+│   └── token-check/     # Token validation utility
 ├── pkg/
 │   ├── auth/           # JWT authentication
-│   ├── channels/       # Phoenix Channels protocol
+│   ├── channels/       # Phoenix Channels protocol client
 │   ├── config/         # Configuration management
-│   └── proxy/          # Main proxy engine
-├── test_server/        # Test HTTP server
-├── Dockerfile          # Docker build
-├── Makefile           # Build automation
-└── README.md          # This file
+│   ├── proxy/          # Main proxy engine
+│   └── storage/        # Encrypted token persistence
+├── test_server/        # Test HTTP server for development
+├── Dockerfile          # Multi-stage Docker build
+├── Makefile            # Build automation
+├── CLAUDE.md           # AI assistant guidance
+├── AGENTS.md           # Development guidelines
+└── README.md           # This file
 ```
 
 ### Building from Source
@@ -360,13 +413,17 @@ Messages are JSON arrays: `[join_ref, ref, topic, event, payload]`
 
 ### Operational Limits
 
-- **Max Response Size**: Configurable via `MAX_RESPONSE_SIZE` (default: 100 MB)
-- **Chunk Size**: Configurable via `CHUNK_SIZE` (default: 1 MB) - responses larger than this are automatically chunked
-- **Connection Monitor**: Configurable via `CONNECTION_MONITOR_INTERVAL` (default: 5s)
-- **Connection Retries**: Configurable via `MAX_RETRIES` (default: 100)
-- **Heartbeat Timeout**: 3x `HEARTBEAT_INTERVAL` (connection considered dead if no heartbeat ack received)
-- **Database Timeout**: Configurable via `DB_TIMEOUT` (default: 10s)
-- **Backend Protocol**: Supports both HTTP and HTTPS backends via `BACKEND_SCHEME`
+| Limit | Environment Variable | Typical Value | Notes |
+|-------|---------------------|---------------|-------|
+| Max Response Size | `MAX_RESPONSE_SIZE` | 100 MB | Responses exceeding this are rejected |
+| Chunk Size | `CHUNK_SIZE` | 1 MB | Responses larger than this are automatically chunked |
+| Connection Monitor | `CONNECTION_MONITOR_INTERVAL` | 5s | Health check frequency |
+| Connection Retries | `MAX_RETRIES` | 100 or -1 | Use -1 for infinite retries |
+| Heartbeat Timeout | - | 3x `HEARTBEAT_INTERVAL` | Connection considered dead if no ack |
+| Database Timeout | `DB_TIMEOUT` | 10s | SQLite operation timeout |
+| Backend Protocol | `BACKEND_SCHEME` | http/https | Supports both protocols |
+
+**Note:** All configuration must be explicitly set via environment variables - no defaults are provided.
 
 ## License
 
