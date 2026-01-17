@@ -371,25 +371,17 @@ go test ./...
 
 ### Testing
 
-Start the test backend:
-
-```bash
-cd test_server
-go run server.go
-```
-
-In another terminal, start Telephone:
+Start your backend application on the configured port (default: 8080), then start Telephone:
 
 ```bash
 ./bin/telephone
 ```
 
-Make test requests:
+Make test requests through Plugboard:
 
 ```bash
-# Assuming your path is registered as /test
-curl http://localhost:4000/call/test/
-curl http://localhost:4000/call/test/echo?foo=bar
+# Assuming your path is registered
+curl http://localhost:4000/call/YOUR_PATH/
 ```
 
 ---
