@@ -1,6 +1,6 @@
 ---
-name: Elixir
-description: use this agent in any elixir codebase
+name: Golang
+description: use this agent in any golang codebase
 model: anthropic/claude-opus-4-5-20251101
 temperature: 0.1
 tools:
