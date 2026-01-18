@@ -206,6 +206,25 @@ This is a WebSocket-based reverse proxy sidecar written in Go.
 - Use appropriate log levels (Debug, Info, Warn, Error)
 - **Never** log sensitive information (tokens, passwords, API keys)
 
+### WebSocket authentication guidelines
+
+- Phoenix Socket requires JWT tokens in query parameters (not HTTP headers)
+- **Always** use `GetCleanURL()` when logging WebSocket URLs to prevent token leakage
+- Token security is maintained via:
+  - TLS encryption in production (`wss://`)
+  - Short-lived tokens with automatic refresh
+  - Clean logging that strips query parameters
+- Example:
+
+      // GOOD: Token removed from logs
+      logger.Info("Connected to WebSocket", "url", client.GetCleanURL())
+
+      // BAD: Token exposed in logs - never do this
+      logger.Info("Connected to WebSocket", "url", client.GetURL())
+
+- When building WebSocket URLs, use `buildWSURL()` which properly appends the token as a query parameter
+- When updating tokens (e.g., after refresh), use `UpdateToken()` - the new token will be used on next connection
+
 ### Build and tooling guidelines
 
 - **Always** run `go fmt ./...` before committing

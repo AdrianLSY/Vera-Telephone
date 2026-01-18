@@ -509,3 +509,191 @@ func TestMultipleHandlers(t *testing.T) {
 		t.Errorf("Expected count 10 (second handler), got %d", finalCount)
 	}
 }
+
+// TestBuildWSURL tests WebSocket URL building with token as query parameter
+func TestBuildWSURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		baseURL  string
+		token    string
+		expected string
+		wantErr  bool
+	}{
+		{
+			name:     "simple URL with token",
+			baseURL:  "ws://localhost:4000/socket",
+			token:    "test-token-123",
+			expected: "ws://localhost:4000/socket?token=test-token-123&vsn=2.0.0",
+			wantErr:  false,
+		},
+		{
+			name:     "URL with existing query params",
+			baseURL:  "ws://localhost:4000/socket?foo=bar",
+			token:    "test-token",
+			expected: "ws://localhost:4000/socket?foo=bar&token=test-token&vsn=2.0.0",
+			wantErr:  false,
+		},
+		{
+			name:     "URL without token",
+			baseURL:  "ws://localhost:4000/socket",
+			token:    "",
+			expected: "ws://localhost:4000/socket?vsn=2.0.0",
+			wantErr:  false,
+		},
+		{
+			name:     "wss URL with token",
+			baseURL:  "wss://example.com/telephone/websocket",
+			token:    "jwt-token",
+			expected: "wss://example.com/telephone/websocket?token=jwt-token&vsn=2.0.0",
+			wantErr:  false,
+		},
+		{
+			name:     "invalid URL",
+			baseURL:  "://invalid",
+			token:    "token",
+			expected: "",
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewClient(tt.baseURL, tt.token, 10*time.Second)
+			got, err := client.buildWSURL()
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("buildWSURL() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr && got != tt.expected {
+				t.Errorf("buildWSURL() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestGetCleanURL_RemovesToken tests that GetCleanURL strips the token from URLs
+func TestGetCleanURL_RemovesToken(t *testing.T) {
+	baseURL := "ws://localhost:4000/socket"
+	token := "sensitive-token-12345"
+
+	client := NewClient(baseURL, token, 10*time.Second)
+
+	// Build URL with token
+	fullURL, err := client.buildWSURL()
+	if err != nil {
+		t.Fatalf("buildWSURL() error = %v", err)
+	}
+
+	// Verify token is in URL
+	if !strings.Contains(fullURL, token) {
+		t.Errorf("Expected URL to contain token, got %v", fullURL)
+	}
+
+	// Update client URL to full URL with token
+	client.UpdateURL(fullURL)
+
+	// Get clean URL
+	cleanURL := client.GetCleanURL()
+
+	// Verify token is removed
+	if strings.Contains(cleanURL, token) {
+		t.Errorf("GetCleanURL() should not contain token, got %v", cleanURL)
+	}
+
+	if cleanURL != baseURL {
+		t.Errorf("GetCleanURL() = %v, want %v", cleanURL, baseURL)
+	}
+}
+
+// TestGetCleanURL_WithMultipleQueryParams tests GetCleanURL with multiple query params
+func TestGetCleanURL_WithMultipleQueryParams(t *testing.T) {
+	// URL with multiple query params including token
+	urlWithParams := "ws://localhost:4000/socket?foo=bar&token=secret&baz=qux"
+	client := NewClient(urlWithParams, "", 10*time.Second)
+
+	cleanURL := client.GetCleanURL()
+	expected := "ws://localhost:4000/socket"
+
+	if cleanURL != expected {
+		t.Errorf("GetCleanURL() = %v, want %v", cleanURL, expected)
+	}
+
+	// Verify none of the query params are in the clean URL
+	if strings.Contains(cleanURL, "token") || strings.Contains(cleanURL, "foo") {
+		t.Errorf("GetCleanURL() should not contain any query params, got %v", cleanURL)
+	}
+}
+
+// TestBuildWSURL_TokenUpdate tests that buildWSURL reflects token updates
+func TestBuildWSURL_TokenUpdate(t *testing.T) {
+	client := NewClient("ws://localhost:4000/socket", "initial-token", 10*time.Second)
+
+	// Build URL with initial token
+	url1, err := client.buildWSURL()
+	if err != nil {
+		t.Fatalf("buildWSURL() error = %v", err)
+	}
+
+	if !strings.Contains(url1, "initial-token") {
+		t.Errorf("Expected URL to contain initial-token, got %v", url1)
+	}
+
+	// Update token
+	client.UpdateToken("new-token")
+
+	// Build URL with new token
+	url2, err := client.buildWSURL()
+	if err != nil {
+		t.Fatalf("buildWSURL() error = %v", err)
+	}
+
+	if !strings.Contains(url2, "new-token") {
+		t.Errorf("Expected URL to contain new-token, got %v", url2)
+	}
+
+	if strings.Contains(url2, "initial-token") {
+		t.Errorf("URL should not contain initial-token after update, got %v", url2)
+	}
+}
+
+// TestBuildWSURL_IncludesVSN tests that the vsn parameter is included in the URL
+func TestBuildWSURL_IncludesVSN(t *testing.T) {
+	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
+
+	url, err := client.buildWSURL()
+	if err != nil {
+		t.Fatalf("buildWSURL() error = %v", err)
+	}
+
+	// Verify vsn=2.0.0 parameter is in URL
+	if !strings.Contains(url, "vsn=2.0.0") {
+		t.Errorf("Expected URL to contain vsn=2.0.0, got %v", url)
+	}
+
+	// Verify both token and vsn are present
+	if !strings.Contains(url, "token=test-token") {
+		t.Errorf("Expected URL to contain token parameter, got %v", url)
+	}
+}
+
+// TestBuildWSURL_VSN_WithoutToken tests that vsn is included even without token
+func TestBuildWSURL_VSN_WithoutToken(t *testing.T) {
+	client := NewClient("ws://localhost:4000/socket", "", 10*time.Second)
+
+	url, err := client.buildWSURL()
+	if err != nil {
+		t.Fatalf("buildWSURL() error = %v", err)
+	}
+
+	// Verify vsn parameter is still included even without token
+	if !strings.Contains(url, "vsn=2.0.0") {
+		t.Errorf("Expected URL to contain vsn=2.0.0 even without token, got %v", url)
+	}
+
+	expected := "ws://localhost:4000/socket?vsn=2.0.0"
+	if url != expected {
+		t.Errorf("Expected URL %v, got %v", expected, url)
+	}
+}

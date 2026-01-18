@@ -174,8 +174,8 @@ func New(cfg *config.Config) (*Telephone, error) {
 	// This is needed because after server restart, refreshed tokens may not be recognized
 	originalToken := cfg.Token
 
-	// Build WebSocket URL WITHOUT token (token is sent via Authorization header for security)
-	// This prevents token leakage in logs, referrer headers, and browser history
+	// Build WebSocket URL (token will be added as query parameter during connection)
+	// Phoenix Socket requires tokens in query params for authentication
 	wsURL := cfg.PlugboardURL
 
 	// Configure HTTP client with proper transport settings
@@ -520,7 +520,7 @@ func (t *Telephone) refreshToken() error {
 	// CRITICAL: Update the client's token for reconnection
 	// Plugboard updates the token_hash in its database on refresh,
 	// so we must use the new token for reconnection
-	// Token is sent via Authorization header, not in URL, for security
+	// Token is added as query parameter per Phoenix Socket requirement
 	t.client.UpdateToken(newToken)
 
 	logger.Info("Token refreshed successfully",

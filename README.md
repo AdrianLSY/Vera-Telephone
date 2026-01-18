@@ -154,7 +154,30 @@ Telephone **automatically saves refreshed tokens** to an encrypted SQLite databa
 - Uses industry-standard AES-256-GCM authenticated encryption
 - Database file (`telephone.db`) contains only encrypted data
 - **Keep your `SECRET_KEY_BASE` secret!**
-- Tokens are sent via HTTP headers (not URL query parameters) to prevent log exposure
+- Tokens are sent as query parameters (required by Phoenix Socket)
+- Token leakage is mitigated via:
+  - Short-lived tokens with automatic refresh
+  - Clean URL logging (tokens stripped from logs)
+  - TLS in production (`wss://` encrypts query params in transit)
+  - No browser involvement (server-to-server communication)
+
+### Token Security Considerations
+
+**Why query parameters?**
+Phoenix Socket requires authentication tokens in query parameters, not HTTP headers. This is the standard Phoenix authentication pattern.
+
+**Security mitigations:**
+- **TLS in production**: Use `wss://` URLs to encrypt all communication including query parameters
+- **Short-lived tokens**: Tokens automatically refresh at half-life (e.g., 30-minute refresh for 1-hour tokens)
+- **Clean logging**: All logs use `GetCleanURL()` which strips tokens from URLs
+- **Server-to-server**: No browser caching, history, or referrer issues
+- **Encrypted storage**: Tokens encrypted at rest with AES-256-GCM
+
+**Production checklist:**
+- [ ] Use `wss://` (TLS) for PLUGBOARD_URL
+- [ ] Configure log sanitization to filter query parameters if additional security needed
+- [ ] Rotate SECRET_KEY_BASE periodically
+- [ ] Monitor token refresh logs for anomalies
 
 ### Database Location
 
@@ -411,6 +434,23 @@ curl http://localhost:4000/call/test/echo?foo=bar
 ### Phoenix Channels Wire Format
 
 Messages are JSON arrays: `[join_ref, ref, topic, event, payload]`
+
+### Protocol Version
+
+Telephone uses **Phoenix Channels V2 protocol**:
+
+- **Wire format**: JSON arrays `[join_ref, ref, topic, event, payload]`
+- **Version negotiation**: `vsn=2.0.0` query parameter in WebSocket URL
+- **Serializer**: Server must support `Phoenix.Socket.V2.JSONSerializer`
+
+The protocol version is sent as a query parameter during connection (matching the official Phoenix.js client behavior). Phoenix reads the `vsn` parameter to select the appropriate serializer:
+- With `?vsn=2.0.0`: Uses V2 serializer (JSON arrays)
+- Without `vsn`: Defaults to V1 serializer (JSON objects)
+
+**Example WebSocket URL**:
+```
+ws://localhost:4000/telephone/websocket?token=<jwt>&vsn=2.0.0
+```
 
 ### Key Events
 

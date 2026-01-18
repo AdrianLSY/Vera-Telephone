@@ -119,7 +119,7 @@ func (t *Telephone) attemptConnection() bool {
 	logger.Info("Attempting reconnection with original token...")
 
 	// Temporarily update client token to original
-	// Token is sent via Authorization header, not in URL, for security
+	// Token is added as query parameter per Phoenix Socket requirement
 	t.client.UpdateToken(t.originalToken)
 
 	if err := t.client.Connect(); err != nil {

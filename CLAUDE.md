@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Telephone is a WebSocket-based reverse proxy sidecar for the Vera-Stack. It maintains a persistent connection to the Plugboard reverse proxy server and forwards HTTP requests and WebSocket connections to local backend services using:
 - Phoenix Channels protocol over WebSocket for communication with Plugboard
-- JWT-based authentication with automatic token refresh at half-life
+- JWT-based authentication with automatic token refresh at half-life (tokens sent as query parameters per Phoenix Socket requirement)
 - Encrypted token persistence using SQLite and AES-256-GCM
 - Request correlation with UUIDs for concurrent request handling
 - Automatic reconnection with exponential backoff
@@ -153,6 +153,46 @@ Client                    Plugboard                    Telephone              Ba
 - `ws_closed` - Backend closes WebSocket connection
 - `ws_error` - Error occurred during WebSocket operation
 
+## Authentication & Security
+
+### Token Authentication
+
+Telephone uses JWT tokens for authentication with Plugboard. Per Phoenix Socket requirements, tokens are sent as **query parameters** during the WebSocket handshake:
+
+```
+ws://plugboard:4000/telephone/websocket?token=<jwt>
+```
+
+**Why query parameters?**
+Phoenix Socket reads authentication from connection parameters (query params), not HTTP headers. This is the standard Phoenix pattern.
+
+**Security Implementation:**
+- **TLS**: Production deployments MUST use `wss://` (TLS) to encrypt query parameters in transit
+- **Short-lived tokens**: Tokens automatically refresh at half-life (e.g., 30min for 1hr tokens)
+- **Clean logging**: `GetCleanURL()` strips tokens from all log output
+- **Encrypted storage**: Tokens stored encrypted with AES-256-GCM
+- **No browser exposure**: Server-to-server communication eliminates browser security risks
+
+**Code Example:**
+```go
+// Building WebSocket URL with token and protocol version (internal)
+wsURL, err := client.buildWSURL()  // Adds ?token=<jwt>&vsn=2.0.0
+
+// Logging (token automatically stripped)
+logger.Info("Connected", "url", client.GetCleanURL())  // Safe - no token in logs
+```
+
+**Example WebSocket URL:**
+```
+ws://localhost:4000/telephone/websocket?token=<jwt>&vsn=2.0.0
+```
+
+**Production Checklist:**
+- Use `wss://` in PLUGBOARD_URL (TLS required)
+- Rotate SECRET_KEY_BASE periodically
+- Monitor token refresh cycles
+- Configure additional log filtering if required by security policy
+
 ## Configuration
 
 All configuration is via environment variables. **No defaults are used - all values must be explicitly set.**
@@ -200,7 +240,13 @@ Telephone uses SQLite for encrypted token persistence:
 
 ## Phoenix Channels Protocol
 
-Telephone implements the Phoenix Channels wire protocol:
+Telephone implements the Phoenix Channels wire protocol using **V2 format**.
+
+**Protocol Version:**
+- Uses **Phoenix Channels V2** (JSON array format)
+- Version sent as query parameter: `?vsn=2.0.0` (matches Phoenix.js client behavior)
+- Server selects serializer based on `vsn` parameter
+- Server must have V2 serializer enabled: `Phoenix.Socket.V2.JSONSerializer`
 
 **Message Format:** `[join_ref, ref, topic, event, payload]`
 

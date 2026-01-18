@@ -3,7 +3,6 @@ package channels
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"net/url"
 	"sync"
 	"sync/atomic"
@@ -50,9 +49,11 @@ type Client struct {
 // MessageHandler is a function that handles incoming messages
 type MessageHandler func(*Message)
 
-// NewClient creates a new Phoenix Channels client
-// The token is passed separately and sent via Authorization header (not in URL query params)
-// for security - tokens in URLs can leak via logs, referrer headers, and browser history
+// NewClient creates a new Phoenix Channels client using V2 protocol (JSON array format)
+// The token is passed separately and appended as a query parameter during connection
+// (Phoenix Socket requires tokens in query params, not HTTP headers)
+// Protocol version (vsn=2.0.0) is sent as query parameter to select V2 serializer on server
+// Token leakage is mitigated via GetCleanURL() for logging, short-lived tokens, and TLS in production
 func NewClient(url string, token string, connectTimeout time.Duration) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -95,6 +96,40 @@ func (c *Client) GetURL() string {
 	return c.url
 }
 
+// buildWSURL constructs the WebSocket URL with token as query parameter
+// Phoenix Socket requires tokens in query params (not HTTP headers) for authentication
+func (c *Client) buildWSURL() (string, error) {
+	c.urlMu.RLock()
+	baseURL := c.url
+	c.urlMu.RUnlock()
+
+	c.tokenMu.RLock()
+	token := c.token
+	c.tokenMu.RUnlock()
+
+	// Parse the base URL
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid WebSocket URL: %w", err)
+	}
+
+	// Add token and protocol version as query parameters
+	// Phoenix Socket requires both for proper authentication and serializer selection
+	query := parsedURL.Query()
+
+	if token != "" {
+		query.Set("token", token)
+	}
+
+	// Protocol version - tells Phoenix to use V2 serializer (JSON arrays)
+	// Phoenix.js default: DEFAULT_VSN = "2.0.0"
+	query.Set("vsn", "2.0.0")
+
+	parsedURL.RawQuery = query.Encode()
+
+	return parsedURL.String(), nil
+}
+
 // Connect establishes a WebSocket connection
 func (c *Client) Connect() error {
 	c.connLock.Lock()
@@ -112,19 +147,20 @@ func (c *Client) Connect() error {
 		// Note: We can't wait here because we hold the lock
 	}
 
-	// Get current URL (may have been updated for reconnection)
-	currentURL := c.GetURL()
-
-	// Build headers with token for authentication
-	// Token is sent via Authorization header (not in URL) to prevent leakage in logs
-	headers := c.buildAuthHeaders()
+	// Build WebSocket URL with token as query parameter
+	// Phoenix Socket requires tokens in query params (not HTTP headers) for authentication
+	wsURL, err := c.buildWSURL()
+	if err != nil {
+		return fmt.Errorf("failed to build WebSocket URL: %w", err)
+	}
 
 	// Create dialer with timeout
 	dialer := websocket.Dialer{
 		HandshakeTimeout: c.connectTimeout,
 	}
 
-	conn, _, err := dialer.Dial(currentURL, headers)
+	// Protocol version (vsn=2.0.0) is included in wsURL query params
+	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect to %s: %w", c.GetCleanURL(), err)
 	}
@@ -362,28 +398,8 @@ func (c *Client) handleMessage(msg *Message) {
 	}
 }
 
-// buildAuthHeaders builds HTTP headers for WebSocket authentication
-// Token is sent via Authorization header to prevent leakage in logs, URLs, and referrer headers
-func (c *Client) buildAuthHeaders() http.Header {
-	headers := http.Header{}
-
-	// Add token as Authorization header (secure - not visible in logs or URLs)
-	c.tokenMu.RLock()
-	token := c.token
-	c.tokenMu.RUnlock()
-
-	if token != "" {
-		headers.Set("Authorization", "Bearer "+token)
-	}
-
-	// Add Phoenix version header
-	headers.Set("X-Phoenix-VSN", "2.0.0")
-
-	return headers
-}
-
-// GetCleanURL returns the WebSocket URL without query parameters containing sensitive data
-// Used for logging purposes to avoid token leakage
+// GetCleanURL returns the WebSocket URL without query parameters
+// Used for logging to prevent token leakage (tokens are in query params per Phoenix Socket requirement)
 func (c *Client) GetCleanURL() string {
 	c.urlMu.RLock()
 	defer c.urlMu.RUnlock()
