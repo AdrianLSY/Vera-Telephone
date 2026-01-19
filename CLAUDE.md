@@ -126,18 +126,32 @@ make docker-run            # Build and run in Docker
 
 ### WebSocket Proxy Flow
 
+The WebSocket proxy uses a **two-phase connection process**:
+1. **Pre-flight check (`ws_check`)** - Verifies backend WebSocket support and captures the negotiated subprotocol
+2. **Connection (`ws_connect`)** - Establishes the actual bidirectional WebSocket tunnel
+
 ```
 Client                    Plugboard                    Telephone              Backend
   │                          │                            │                      │
   │ WebSocket Upgrade        │                            │                      │
   │ ─────────────────────────►                            │                      │
+  │                          │                            │                      │
+  │                          │ ws_check (pre-flight)      │                      │
+  │                          │ ───────────────────────────►                      │
+  │                          │                            │ Test WS Connect      │
+  │                          │                            │ ─────────────────────►
+  │                          │                            │ ◄──Negotiated Proto──│
+  │                          │ ws_check_result            │      (close)         │
+  │                          │ ◄───────────────────────────                      │
+  │                          │                            │                      │
+  │ ◄──101 + Protocol────────│                            │                      │
+  │                          │                            │                      │
   │                          │ ws_connect (Phoenix Ch.)   │                      │
   │                          │ ───────────────────────────►                      │
   │                          │                            │ WebSocket Connect    │
   │                          │                            │ ─────────────────────►
   │                          │ ws_connected               │ ◄─────Connected──────│
   │                          │ ◄───────────────────────────                      │
-  │ ◄──101 Switching─────────│                            │                      │
   │                          │                            │                      │
   │ ══════════════════════════ Bidirectional Frames ═══════════════════════════ │
   │                          │                            │                      │
@@ -146,12 +160,19 @@ Client                    Plugboard                    Telephone              Ba
 ```
 
 **WebSocket Proxy Events:**
+- `ws_check` - Plugboard requests pre-flight verification of backend WebSocket support
+- `ws_check_result` - Telephone responds with supported status and negotiated protocol
 - `ws_connect` - Client initiates WebSocket connection to backend
 - `ws_connected` - Backend connection established successfully
 - `ws_frame` - Bidirectional frame forwarding (base64-encoded data)
 - `ws_close` - Client closes WebSocket connection
 - `ws_closed` - Backend closes WebSocket connection
 - `ws_error` - Error occurred during WebSocket operation
+
+**Hop-by-hop Header Filtering:**
+When connecting to the backend WebSocket, Telephone filters these headers (gorilla/websocket adds its own):
+- `sec-websocket-key`, `sec-websocket-version`, `sec-websocket-extensions`
+- `upgrade`, `connection`
 
 ## Authentication & Security
 

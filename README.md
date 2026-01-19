@@ -463,6 +463,8 @@ ws://localhost:4000/telephone/websocket?token=<jwt>&vsn=2.0.0
 
 ### WebSocket Proxy Events
 
+- **ws_check** - Plugboard requests pre-flight verification of backend WebSocket support (before upgrading client)
+- **ws_check_result** - Telephone responds with support status and negotiated subprotocol
 - **ws_connect** - Client wants to establish WebSocket connection to backend
 - **ws_connected** - Backend WebSocket connection established
 - **ws_frame** - WebSocket frame (bidirectional, base64-encoded)

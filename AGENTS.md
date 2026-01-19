@@ -186,6 +186,25 @@ This is a WebSocket-based reverse proxy sidecar written in Go.
       conn.WriteMessage(websocket.CloseMessage, 
           websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 
+### WebSocket proxy guidelines
+
+- When proxying WebSocket connections to backends, **filter hop-by-hop headers** before connecting
+- **Headers to filter:** `sec-websocket-key`, `sec-websocket-version`, `sec-websocket-extensions`, `upgrade`, `connection`
+- These headers are connection-specific; gorilla/websocket adds its own during the backend handshake
+- Forwarding them causes duplicate header errors and connection failures
+- The `isHopByHopHeader()` helper in `pkg/websocket/manager.go` implements this filtering
+- Use lowercase header names for comparison (HTTP headers are case-insensitive)
+
+      // Example: Filter hop-by-hop headers before proxying
+      func isHopByHopHeader(name string) bool {
+          switch strings.ToLower(name) {
+          case "sec-websocket-key", "sec-websocket-version", 
+               "sec-websocket-extensions", "upgrade", "connection":
+              return true
+          }
+          return false
+      }
+
 ### JSON handling guidelines
 
 - Use `encoding/json` for JSON marshaling/unmarshaling
