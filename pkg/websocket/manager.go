@@ -13,6 +13,21 @@ import (
 	"github.com/verastack/telephone/pkg/logger"
 )
 
+// hopByHopHeaders are WebSocket handshake headers that should not be forwarded
+// to the backend. The gorilla/websocket dialer generates its own values for these.
+var hopByHopHeaders = map[string]bool{
+	"sec-websocket-key":        true,
+	"sec-websocket-version":    true,
+	"sec-websocket-extensions": true,
+	"upgrade":                  true,
+	"connection":               true,
+}
+
+// isHopByHopHeader checks if a header should be stripped before forwarding
+func isHopByHopHeader(name string) bool {
+	return hopByHopHeaders[strings.ToLower(name)]
+}
+
 // EventHandler is called when events occur on backend WebSocket connections
 type EventHandler interface {
 	// OnFrame is called when a frame is received from the backend
@@ -81,7 +96,8 @@ func (m *Manager) Connect(connectionID, url string, headers map[string]string) (
 					subprotocols = append(subprotocols, proto)
 				}
 			}
-		} else {
+		} else if !isHopByHopHeader(k) {
+			// Forward header (skip hop-by-hop headers that the dialer will set)
 			httpHeaders.Set(k, v)
 		}
 	}
@@ -337,3 +353,63 @@ func EncodeBase64(data []byte) string {
 
 // noDeadline is a zero time used for WebSocket control messages (no deadline)
 var noDeadline time.Time
+
+// CheckSupport attempts a WebSocket connection to verify backend support.
+// It returns the selected protocol on success, or an error if the backend
+// doesn't support WebSocket. The connection is immediately closed after
+// the handshake completes. This is used for pre-flight checks before
+// upgrading the client connection.
+func (m *Manager) CheckSupport(ctx context.Context, url string, headers map[string]string) (string, error) {
+	// Build HTTP headers for the WebSocket handshake
+	httpHeaders := http.Header{}
+	var subprotocols []string
+
+	for k, v := range headers {
+		// Extract subprotocols from sec-websocket-protocol header
+		if strings.EqualFold(k, "sec-websocket-protocol") {
+			// Parse comma-separated subprotocols
+			for _, proto := range strings.Split(v, ",") {
+				proto = strings.TrimSpace(proto)
+				if proto != "" {
+					subprotocols = append(subprotocols, proto)
+				}
+			}
+		} else if !isHopByHopHeader(k) {
+			// Forward header (skip hop-by-hop headers that the dialer will set)
+			httpHeaders.Set(k, v)
+		}
+	}
+
+	// Configure dialer with subprotocols and handshake timeout
+	dialer := websocket.Dialer{
+		Subprotocols:     subprotocols,
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	// Attempt connection with context timeout
+	conn, resp, err := dialer.DialContext(ctx, url, httpHeaders)
+	if err != nil {
+		if resp != nil {
+			return "", fmt.Errorf("websocket check failed (status %d): %w", resp.StatusCode, err)
+		}
+		return "", fmt.Errorf("websocket check failed: %w", err)
+	}
+
+	// Get selected subprotocol
+	protocol := conn.Subprotocol()
+
+	// Close immediately - we only needed to verify support
+	conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "check complete"),
+		time.Now().Add(time.Second),
+	)
+	conn.Close()
+
+	logger.Debug("WebSocket check successful",
+		"url", url,
+		"protocol", protocol,
+	)
+
+	return protocol, nil
+}

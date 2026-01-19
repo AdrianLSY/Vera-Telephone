@@ -76,3 +76,19 @@ const (
 func (e ErrorReason) String() string {
 	return string(e)
 }
+
+// CheckPayload represents the payload for ws_check event from Plugboard
+type CheckPayload struct {
+	CheckID     string            `json:"check_id"`
+	Path        string            `json:"path"`
+	QueryString string            `json:"query_string"`
+	Headers     map[string]string `json:"headers"`
+}
+
+// CheckResultPayload represents the payload for ws_check_result event to Plugboard
+type CheckResultPayload struct {
+	CheckID   string `json:"check_id"`
+	Supported bool   `json:"supported"`
+	Protocol  string `json:"protocol,omitempty"` // Selected subprotocol (if supported)
+	Reason    string `json:"reason,omitempty"`   // Error reason (if not supported)
+}

@@ -230,6 +230,7 @@ func (t *Telephone) Start() error {
 	t.client.On("ws_connect", t.handleWSConnect)
 	t.client.On("ws_frame", t.handleWSFrame)
 	t.client.On("ws_close", t.handleWSClose)
+	t.client.On("ws_check", t.handleWSCheck)
 
 	// Join the channel
 	if err := t.joinChannel(); err != nil {

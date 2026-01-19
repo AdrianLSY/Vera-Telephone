@@ -37,6 +37,6 @@ type ChannelsClient interface {
 	UpdateURL(url string)
 
 	// UpdateToken updates the authentication token (used after token refresh)
-	// Token is sent via Authorization header, not in URL, for security
+	// Token is sent as query parameter per Phoenix Socket requirement
 	UpdateToken(token string)
 }

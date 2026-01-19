@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/verastack/telephone/pkg/channels"
 	"github.com/verastack/telephone/pkg/logger"
@@ -276,4 +278,93 @@ func (t *Telephone) buildWSBackendURL(path, queryString string) string {
 	}
 
 	return url
+}
+
+// handleWSCheck handles the ws_check event from Plugboard.
+// This is a pre-flight check to verify backend WebSocket support before
+// Plugboard upgrades the client connection.
+func (t *Telephone) handleWSCheck(msg *channels.Message) {
+	// Parse payload
+	checkID, ok := msg.Payload["check_id"].(string)
+	if !ok || checkID == "" {
+		logger.Error("ws_check: missing or invalid check_id")
+		return
+	}
+
+	path, _ := msg.Payload["path"].(string)
+	queryString, _ := msg.Payload["query_string"].(string)
+
+	// Extract headers
+	headers := make(map[string]string)
+	if rawHeaders, ok := msg.Payload["headers"].(map[string]interface{}); ok {
+		for k, v := range rawHeaders {
+			if str, ok := v.(string); ok {
+				headers[k] = str
+			}
+		}
+	}
+
+	logger.Info("WebSocket check request",
+		"check_id", checkID,
+		"path", path,
+	)
+
+	// Build backend WebSocket URL (reuse existing method)
+	backendURL := t.buildWSBackendURL(path, queryString)
+
+	// Create context with timeout (3 seconds to leave buffer for the 5s Plugboard timeout)
+	ctx, cancel := context.WithTimeout(t.ctx, 3*time.Second)
+	defer cancel()
+
+	// Attempt WebSocket handshake
+	protocol, err := t.wsManager.CheckSupport(ctx, backendURL, headers)
+	if err != nil {
+		logger.Warn("WebSocket check failed",
+			"check_id", checkID,
+			"path", path,
+			"error", err,
+		)
+		t.sendWSCheckResult(checkID, false, "", err.Error())
+		return
+	}
+
+	logger.Info("WebSocket check succeeded",
+		"check_id", checkID,
+		"path", path,
+		"protocol", protocol,
+	)
+	t.sendWSCheckResult(checkID, true, protocol, "")
+}
+
+// sendWSCheckResult sends ws_check_result event to Plugboard
+func (t *Telephone) sendWSCheckResult(checkID string, supported bool, protocol, reason string) {
+	topic := fmt.Sprintf("telephone:%s", t.claims.PathID)
+	ref := t.client.NextRef()
+
+	payload := map[string]interface{}{
+		"check_id":  checkID,
+		"supported": supported,
+	}
+	if protocol != "" {
+		payload["protocol"] = protocol
+	}
+	if reason != "" {
+		payload["reason"] = reason
+	}
+
+	msg := channels.NewMessage(topic, "ws_check_result", ref, payload)
+
+	if err := t.client.Send(msg); err != nil {
+		logger.Error("Failed to send ws_check_result",
+			"check_id", checkID,
+			"error", err,
+		)
+		return
+	}
+
+	logger.Debug("Sent ws_check_result",
+		"check_id", checkID,
+		"supported", supported,
+		"protocol", protocol,
+	)
 }
