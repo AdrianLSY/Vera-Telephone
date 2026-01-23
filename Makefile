@@ -105,9 +105,4 @@ precommit: fmt vet test ## Run pre-commit checks (fmt + vet + test)
 
 all: clean verify build ## Clean, verify, and build
 
-# Backend test server
-test-backend: ## Run the test backend server
-	@echo "Starting test backend server on :8080..."
-	$(GO) run ./test_server/server.go
-
 .DEFAULT_GOAL := help

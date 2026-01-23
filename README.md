@@ -381,8 +381,7 @@ Telephone/
 │   ├── channels/       # Phoenix Channels protocol client
 │   ├── config/         # Configuration management
 │   ├── proxy/          # Main proxy engine
-│   ├── storage/        # Encrypted token persistence
-│   └── websocket/      # WebSocket proxy connection manager
+│   └── storage/        # Encrypted token persistence
 ├── test_server/        # Test HTTP server for development
 ├── Dockerfile          # Multi-stage Docker build
 ├── Makefile            # Build automation
@@ -406,25 +405,17 @@ go test ./...
 
 ### Testing
 
-Start the test backend:
-
-```bash
-cd test_server
-go run server.go
-```
-
-In another terminal, start Telephone:
+Start your backend application on the configured port (default: 8080), then start Telephone:
 
 ```bash
 ./bin/telephone
 ```
 
-Make test requests:
+Make test requests through Plugboard:
 
 ```bash
-# Assuming your path is registered as /test
-curl http://localhost:4000/call/test/
-curl http://localhost:4000/call/test/echo?foo=bar
+# Assuming your path is registered
+curl http://localhost:4000/call/YOUR_PATH/
 ```
 
 ---
@@ -485,52 +476,8 @@ ws://localhost:4000/telephone/websocket?token=<jwt>&vsn=2.0.0
 | Heartbeat Timeout | - | 3x `HEARTBEAT_INTERVAL` | Connection considered dead if no ack |
 | Database Timeout | `DB_TIMEOUT` | 10s | SQLite operation timeout |
 | Backend Protocol | `BACKEND_SCHEME` | http/https | Supports both protocols |
-| Health Check Port | `HEALTH_CHECK_PORT` | 8081 | Optional - set to enable health endpoints |
 
 **Note:** All configuration must be explicitly set via environment variables - no defaults are provided.
-
----
-
-## Health Check Endpoints
-
-When `HEALTH_CHECK_PORT` is set, Telephone exposes HTTP health check endpoints for Kubernetes and other orchestration systems:
-
-| Endpoint | Description | Success | Failure |
-|----------|-------------|---------|---------|
-| `/health` or `/healthz` | Overall health status (JSON) | 200 OK | 503 Service Unavailable |
-| `/ready` or `/readyz` | Readiness probe (connected + valid token) | 200 OK | 503 Service Unavailable |
-| `/live` or `/livez` | Liveness probe (process running) | 200 OK | - |
-
-### Health Response Format
-
-```json
-{
-  "status": "healthy",
-  "connected": true,
-  "uptime": "1h30m45s",
-  "last_heartbeat": "5s ago",
-  "token_expiry": "45m30s",
-  "version": "1.0.0"
-}
-```
-
-### Kubernetes Example
-
-```yaml
-livenessProbe:
-  httpGet:
-    path: /livez
-    port: 8081
-  initialDelaySeconds: 5
-  periodSeconds: 10
-
-readinessProbe:
-  httpGet:
-    path: /readyz
-    port: 8081
-  initialDelaySeconds: 5
-  periodSeconds: 5
-```
 
 ## License
 

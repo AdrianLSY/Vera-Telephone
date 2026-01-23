@@ -186,25 +186,6 @@ This is a WebSocket-based reverse proxy sidecar written in Go.
       conn.WriteMessage(websocket.CloseMessage, 
           websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 
-### WebSocket proxy guidelines
-
-- When proxying WebSocket connections to backends, **filter hop-by-hop headers** before connecting
-- **Headers to filter:** `sec-websocket-key`, `sec-websocket-version`, `sec-websocket-extensions`, `upgrade`, `connection`
-- These headers are connection-specific; gorilla/websocket adds its own during the backend handshake
-- Forwarding them causes duplicate header errors and connection failures
-- The `isHopByHopHeader()` helper in `pkg/websocket/manager.go` implements this filtering
-- Use lowercase header names for comparison (HTTP headers are case-insensitive)
-
-      // Example: Filter hop-by-hop headers before proxying
-      func isHopByHopHeader(name string) bool {
-          switch strings.ToLower(name) {
-          case "sec-websocket-key", "sec-websocket-version", 
-               "sec-websocket-extensions", "upgrade", "connection":
-              return true
-          }
-          return false
-      }
-
 ### JSON handling guidelines
 
 - Use `encoding/json` for JSON marshaling/unmarshaling
@@ -224,25 +205,6 @@ This is a WebSocket-based reverse proxy sidecar written in Go.
 - Include relevant context in log messages (correlation IDs, request info)
 - Use appropriate log levels (Debug, Info, Warn, Error)
 - **Never** log sensitive information (tokens, passwords, API keys)
-
-### WebSocket authentication guidelines
-
-- Phoenix Socket requires JWT tokens in query parameters (not HTTP headers)
-- **Always** use `GetCleanURL()` when logging WebSocket URLs to prevent token leakage
-- Token security is maintained via:
-  - TLS encryption in production (`wss://`)
-  - Short-lived tokens with automatic refresh
-  - Clean logging that strips query parameters
-- Example:
-
-      // GOOD: Token removed from logs
-      logger.Info("Connected to WebSocket", "url", client.GetCleanURL())
-
-      // BAD: Token exposed in logs - never do this
-      logger.Info("Connected to WebSocket", "url", client.GetURL())
-
-- When building WebSocket URLs, use `buildWSURL()` which properly appends the token as a query parameter
-- When updating tokens (e.g., after refresh), use `UpdateToken()` - the new token will be used on next connection
 
 ### Build and tooling guidelines
 

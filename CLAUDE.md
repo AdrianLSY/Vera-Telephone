@@ -8,14 +8,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Telephone is a WebSocket-based reverse proxy sidecar for the Vera-Stack. It maintains a persistent connection to the Plugboard reverse proxy server and forwards HTTP requests and WebSocket connections to local backend services using:
+Telephone is a WebSocket-based reverse proxy sidecar for the Vera-Stack. It maintains a persistent connection to the Plugboard reverse proxy server and forwards HTTP requests to local backend services using:
 - Phoenix Channels protocol over WebSocket for communication with Plugboard
-- JWT-based authentication with automatic token refresh at half-life (tokens sent as query parameters per Phoenix Socket requirement)
+- JWT-based authentication with automatic token refresh at half-life
 - Encrypted token persistence using SQLite and AES-256-GCM
 - Request correlation with UUIDs for concurrent request handling
 - Automatic reconnection with exponential backoff
 - Chunked response support for large payloads (>1MB)
-- **WebSocket proxy support** for bidirectional WebSocket connections to backends
 
 ## Build & Development Commands
 
@@ -52,7 +51,7 @@ make docker-run            # Build and run in Docker
 
 ### Core Components (pkg/)
 
-- **proxy/** (`telephone.go`, `reconnect.go`, `websocket.go`) - Main proxy engine managing the WebSocket connection lifecycle, request forwarding, and token management. Handles concurrent requests via correlation IDs and implements graceful shutdown. WebSocket proxy handlers forward ws_connect/ws_frame/ws_close events to/from the websocket manager.
+- **proxy/** (`telephone.go`, `reconnect.go`) - Main proxy engine managing the WebSocket connection lifecycle, request forwarding, and token management. Handles concurrent requests via correlation IDs and implements graceful shutdown.
 
 - **channels/** (`client.go`, `message.go`) - Phoenix Channels protocol client. Implements the wire format `[join_ref, ref, topic, event, payload]`, handles message serialization, and manages channel joins/leaves.
 
@@ -61,8 +60,6 @@ make docker-run            # Build and run in Docker
 - **config/** (`config.go`) - Configuration management loading all settings from environment variables. Enforces required variables and validates values.
 
 - **storage/** (`token_store.go`) - Encrypted token persistence using SQLite. Tokens are encrypted with AES-256-GCM using a key derived from `SECRET_KEY_BASE` via PBKDF2.
-
-- **websocket/** (`manager.go`, `types.go`) - WebSocket proxy connection manager. Manages backend WebSocket connections with goroutine-per-connection for receiving frames. Handles connection lifecycle, frame forwarding (base64-encoded), and graceful shutdown.
 
 ### Command Entry Points (cmd/)
 
@@ -74,7 +71,7 @@ make docker-run            # Build and run in Docker
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                              Plugboard Server                                 │
+│                              Plugboard Server                                │
 │                                                                              │
 │  1. Receives HTTP request at /call/*path                                     │
 │  2. Matches path to registered Telephone                                     │
@@ -111,7 +108,7 @@ make docker-run            # Build and run in Docker
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  Token Lifecycle                                                         │
+│  Token Lifecycle                                                        │
 │                                                                         │
 │  1. Startup: Load token from env (TELEPHONE_TOKEN) or database          │
 │  2. Parse JWT to extract expiry time                                    │
@@ -123,96 +120,6 @@ make docker-run            # Build and run in Docker
 │  8. On restart: Load encrypted token from SQLite if still valid         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
-
-### WebSocket Proxy Flow
-
-The WebSocket proxy uses a **two-phase connection process**:
-1. **Pre-flight check (`ws_check`)** - Verifies backend WebSocket support and captures the negotiated subprotocol
-2. **Connection (`ws_connect`)** - Establishes the actual bidirectional WebSocket tunnel
-
-```
-Client                    Plugboard                    Telephone              Backend
-  │                          │                            │                      │
-  │ WebSocket Upgrade        │                            │                      │
-  │ ─────────────────────────►                            │                      │
-  │                          │                            │                      │
-  │                          │ ws_check (pre-flight)      │                      │
-  │                          │ ───────────────────────────►                      │
-  │                          │                            │ Test WS Connect      │
-  │                          │                            │ ─────────────────────►
-  │                          │                            │ ◄──Negotiated Proto──│
-  │                          │ ws_check_result            │      (close)         │
-  │                          │ ◄───────────────────────────                      │
-  │                          │                            │                      │
-  │ ◄──101 + Protocol────────│                            │                      │
-  │                          │                            │                      │
-  │                          │ ws_connect (Phoenix Ch.)   │                      │
-  │                          │ ───────────────────────────►                      │
-  │                          │                            │ WebSocket Connect    │
-  │                          │                            │ ─────────────────────►
-  │                          │ ws_connected               │ ◄─────Connected──────│
-  │                          │ ◄───────────────────────────                      │
-  │                          │                            │                      │
-  │ ══════════════════════════ Bidirectional Frames ═══════════════════════════ │
-  │                          │                            │                      │
-  │ Frame ──────────────────►│ ws_frame ─────────────────►│ Frame ──────────────►│
-  │ ◄───────────────── Frame │◄──────────────── ws_frame │◄───────────────Frame │
-```
-
-**WebSocket Proxy Events:**
-- `ws_check` - Plugboard requests pre-flight verification of backend WebSocket support
-- `ws_check_result` - Telephone responds with supported status and negotiated protocol
-- `ws_connect` - Client initiates WebSocket connection to backend
-- `ws_connected` - Backend connection established successfully
-- `ws_frame` - Bidirectional frame forwarding (base64-encoded data)
-- `ws_close` - Client closes WebSocket connection
-- `ws_closed` - Backend closes WebSocket connection
-- `ws_error` - Error occurred during WebSocket operation
-
-**Hop-by-hop Header Filtering:**
-When connecting to the backend WebSocket, Telephone filters these headers (gorilla/websocket adds its own):
-- `sec-websocket-key`, `sec-websocket-version`, `sec-websocket-extensions`
-- `upgrade`, `connection`
-
-## Authentication & Security
-
-### Token Authentication
-
-Telephone uses JWT tokens for authentication with Plugboard. Per Phoenix Socket requirements, tokens are sent as **query parameters** during the WebSocket handshake:
-
-```
-ws://plugboard:4000/telephone/websocket?token=<jwt>
-```
-
-**Why query parameters?**
-Phoenix Socket reads authentication from connection parameters (query params), not HTTP headers. This is the standard Phoenix pattern.
-
-**Security Implementation:**
-- **TLS**: Production deployments MUST use `wss://` (TLS) to encrypt query parameters in transit
-- **Short-lived tokens**: Tokens automatically refresh at half-life (e.g., 30min for 1hr tokens)
-- **Clean logging**: `GetCleanURL()` strips tokens from all log output
-- **Encrypted storage**: Tokens stored encrypted with AES-256-GCM
-- **No browser exposure**: Server-to-server communication eliminates browser security risks
-
-**Code Example:**
-```go
-// Building WebSocket URL with token and protocol version (internal)
-wsURL, err := client.buildWSURL()  // Adds ?token=<jwt>&vsn=2.0.0
-
-// Logging (token automatically stripped)
-logger.Info("Connected", "url", client.GetCleanURL())  // Safe - no token in logs
-```
-
-**Example WebSocket URL:**
-```
-ws://localhost:4000/telephone/websocket?token=<jwt>&vsn=2.0.0
-```
-
-**Production Checklist:**
-- Use `wss://` in PLUGBOARD_URL (TLS required)
-- Rotate SECRET_KEY_BASE periodically
-- Monitor token refresh cycles
-- Configure additional log filtering if required by security policy
 
 ## Configuration
 
@@ -239,7 +146,6 @@ All configuration is via environment variables. **No defaults are used - all val
 | `MAX_RESPONSE_SIZE` | Maximum response size in bytes | `104857600` |
 | `CHUNK_SIZE` | Chunk size for large responses | `1048576` |
 | `DB_TIMEOUT` | Database operation timeout | `10s` |
-| `HEALTH_CHECK_PORT` | Port for health check HTTP server (optional) | `8081` |
 
 ## Token Storage Schema
 
@@ -261,13 +167,7 @@ Telephone uses SQLite for encrypted token persistence:
 
 ## Phoenix Channels Protocol
 
-Telephone implements the Phoenix Channels wire protocol using **V2 format**.
-
-**Protocol Version:**
-- Uses **Phoenix Channels V2** (JSON array format)
-- Version sent as query parameter: `?vsn=2.0.0` (matches Phoenix.js client behavior)
-- Server selects serializer based on `vsn` parameter
-- Server must have V2 serializer enabled: `Phoenix.Socket.V2.JSONSerializer`
+Telephone implements the Phoenix Channels wire protocol:
 
 **Message Format:** `[join_ref, ref, topic, event, payload]`
 
@@ -278,14 +178,6 @@ Telephone implements the Phoenix Channels wire protocol using **V2 format**.
 - `proxy_req` - Incoming HTTP request from Plugboard
 - `proxy_res` - Response sent back to Plugboard
 - `refresh_token` - Request new JWT token from Plugboard
-
-**WebSocket Proxy Events:**
-- `ws_connect` - Client wants to establish WebSocket connection to backend
-- `ws_connected` - Backend WebSocket connection established
-- `ws_frame` - WebSocket frame (bidirectional, base64-encoded data)
-- `ws_close` - Client closed WebSocket connection
-- `ws_closed` - Backend closed WebSocket connection
-- `ws_error` - WebSocket error occurred
 
 ## Testing Guidelines
 
@@ -303,16 +195,5 @@ Telephone uses several goroutines:
 3. **Heartbeat** - Sends periodic heartbeats to keep connection alive
 4. **Connection monitor** - Checks connection health and triggers reconnection
 5. **Token refresh timer** - Schedules token refresh at half-life
-6. **WebSocket receivers** - One goroutine per backend WebSocket connection for receiving frames (`websocket/manager.go`)
 
 All goroutines respect `context.Context` for cancellation and use `sync.WaitGroup` for graceful shutdown.
-
-## Health Check Endpoints
-
-When `HEALTH_CHECK_PORT` is set, Telephone exposes HTTP health check endpoints:
-
-- `/health` or `/healthz` - Overall health status (JSON response with status, uptime, token expiry)
-- `/ready` or `/readyz` - Readiness probe (returns 200 if connected to Plugboard and token is valid)
-- `/live` or `/livez` - Liveness probe (always returns 200 if process is running)
-
-These endpoints are Kubernetes-compatible and can be used for container orchestration.
