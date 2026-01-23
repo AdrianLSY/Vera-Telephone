@@ -71,7 +71,7 @@ make docker-run            # Build and run in Docker
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                              Plugboard Server                                 │
+│                              Plugboard Server                                │
 │                                                                              │
 │  1. Receives HTTP request at /call/*path                                     │
 │  2. Matches path to registered Telephone                                     │
@@ -108,7 +108,7 @@ make docker-run            # Build and run in Docker
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  Token Lifecycle                                                         │
+│  Token Lifecycle                                                        │
 │                                                                         │
 │  1. Startup: Load token from env (TELEPHONE_TOKEN) or database          │
 │  2. Parse JWT to extract expiry time                                    │

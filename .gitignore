@@ -17,6 +17,7 @@ go.work
 
 # Environment
 .env*
+!.env.example
 
 # Version management
 .tool-versions

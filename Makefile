@@ -100,6 +100,9 @@ deps: ## Download dependencies
 
 verify: fmt vet lint test ## Run all verification checks
 
+precommit: fmt vet test ## Run pre-commit checks (fmt + vet + test)
+	@echo "Pre-commit checks passed!"
+
 all: clean verify build ## Clean, verify, and build
 
 .DEFAULT_GOAL := help

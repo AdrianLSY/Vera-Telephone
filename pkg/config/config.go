@@ -37,6 +37,9 @@ type Config struct {
 	MaxResponseSize int64 // Maximum response size in bytes
 	ChunkSize       int   // Chunk size for large responses
 	DBTimeout       time.Duration
+
+	// Health check server
+	HealthCheckPort int // Port for health check HTTP server (0 = disabled)
 }
 
 // LoadFromEnv loads configuration from environment variables
@@ -205,6 +208,18 @@ func LoadFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("invalid DB_TIMEOUT: %w", err)
 	}
 	cfg.DBTimeout = dbTimeout
+
+	// Optional: Health check port (0 = disabled)
+	if healthPortStr := os.Getenv("HEALTH_CHECK_PORT"); healthPortStr != "" {
+		healthPort, err := strconv.Atoi(healthPortStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid HEALTH_CHECK_PORT: %w", err)
+		}
+		if healthPort < 0 || healthPort > 65535 {
+			return nil, fmt.Errorf("HEALTH_CHECK_PORT must be between 0 and 65535")
+		}
+		cfg.HealthCheckPort = healthPort
+	}
 
 	return cfg, nil
 }

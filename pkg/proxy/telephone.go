@@ -2,10 +2,10 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -15,7 +15,9 @@ import (
 	"github.com/verastack/telephone/pkg/auth"
 	"github.com/verastack/telephone/pkg/channels"
 	"github.com/verastack/telephone/pkg/config"
+	"github.com/verastack/telephone/pkg/logger"
 	"github.com/verastack/telephone/pkg/storage"
+	"github.com/verastack/telephone/pkg/websocket"
 )
 
 // Valid HTTP methods
@@ -31,6 +33,34 @@ var validHTTPMethods = map[string]bool{
 
 // UUID validation regex
 var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// secureRandomDuration returns a cryptographically secure random duration
+// in the range [0, max). This is used for jitter to prevent timing attacks
+// and thundering herd problems.
+func secureRandomDuration(max time.Duration) time.Duration {
+	if max <= 0 {
+		return 0
+	}
+	var b [8]byte
+	_, err := cryptorand.Read(b[:])
+	if err != nil {
+		// Fallback to zero jitter if crypto/rand fails (very unlikely)
+		return 0
+	}
+	n := binary.LittleEndian.Uint64(b[:])
+	return time.Duration(n % uint64(max))
+}
+
+// defaultBufferSize is the standard buffer size for the pool (1MB)
+const defaultBufferSize = 1024 * 1024
+
+// bufferPool is used to reuse byte buffers for reading large responses
+// This reduces memory allocations and GC pressure
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, defaultBufferSize)
+	},
+}
 
 // PendingRequest tracks an in-flight proxy request
 type PendingRequest struct {
@@ -68,6 +98,9 @@ type Telephone struct {
 	requestLock     sync.RWMutex
 	activeRequests  sync.WaitGroup
 
+	// WebSocket proxy
+	wsManager *websocket.Manager
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -80,6 +113,9 @@ type Telephone struct {
 	// Reconnection
 	reconnecting  sync.Mutex
 	reconnectFlag bool
+
+	// Health check server
+	healthServer *healthServer
 }
 
 // New creates a new Telephone instance
@@ -98,11 +134,11 @@ func New(cfg *config.Config) (*Telephone, error) {
 	if err == nil && expiresAt.After(time.Now()) {
 		// Use persisted token if it's still valid
 		token = persistedToken
-		log.Printf("Loaded persisted token from database (expires: %s)", expiresAt)
+		logger.Info("Loaded persisted token from database", "expires", expiresAt)
 	} else if cfg.Token != "" {
 		// Fall back to environment token
 		token = cfg.Token
-		log.Printf("Using token from environment")
+		logger.Info("Using token from environment")
 	} else {
 		// No token available
 		tokenStore.Close()
@@ -122,10 +158,15 @@ func New(cfg *config.Config) (*Telephone, error) {
 		return nil, fmt.Errorf("invalid token claims: %w", err)
 	}
 
-	log.Printf("Token parsed and verified successfully:")
-	log.Printf("  Path ID: %s", claims.PathID)
-	log.Printf("  Subject: %s", claims.Sub)
-	log.Printf("  Expires: %s (in %s)", claims.ExpiresAt(), claims.ExpiresIn())
+	logger.Info("Token parsed and verified successfully",
+		"expires_in", claims.ExpiresIn(),
+	)
+	// Log detailed token info at DEBUG level to avoid exposing sensitive identifiers
+	logger.Debug("Token details",
+		"path_id", claims.PathID,
+		"subject", claims.Sub,
+		"expires", claims.ExpiresAt(),
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -133,25 +174,49 @@ func New(cfg *config.Config) (*Telephone, error) {
 	// This is needed because after server restart, refreshed tokens may not be recognized
 	originalToken := cfg.Token
 
-	// Build WebSocket URL with token
-	wsURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", cfg.PlugboardURL, token)
+	// Build WebSocket URL (token will be added as query parameter during connection)
+	// Phoenix Socket requires tokens in query params for authentication
+	wsURL := cfg.PlugboardURL
 
-	return &Telephone{
+	// Configure HTTP client with proper transport settings
+	httpTransport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		MaxConnsPerHost:     100,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		DisableCompression:  false,
+	}
+
+	t := &Telephone{
 		config:          cfg,
 		claims:          claims,
-		client:          channels.NewClient(wsURL),
+		client:          channels.NewClient(wsURL, token, cfg.ConnectTimeout),
 		originalToken:   originalToken,
-		backend:         &http.Client{Timeout: cfg.RequestTimeout},
+		backend:         &http.Client{Timeout: cfg.RequestTimeout, Transport: httpTransport},
 		tokenStore:      tokenStore,
 		currentToken:    token,
 		pendingRequests: make(map[string]*PendingRequest),
 		ctx:             ctx,
 		cancel:          cancel,
-	}, nil
+	}
+
+	// Initialize WebSocket manager with Telephone as the event handler
+	t.wsManager = websocket.NewManager(t)
+
+	return t, nil
 }
 
 // Start connects to Plugboard and starts the main loop
 func (t *Telephone) Start() error {
+	// Start health check server if configured
+	if t.config.HealthCheckPort > 0 {
+		t.healthServer = newHealthServer(t, t.config.HealthCheckPort)
+		if err := t.healthServer.Start(); err != nil {
+			return fmt.Errorf("failed to start health check server: %w", err)
+		}
+	}
+
 	// Connect to WebSocket
 	if err := t.client.Connect(); err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
@@ -160,6 +225,12 @@ func (t *Telephone) Start() error {
 	// Register event handlers
 	t.client.On("proxy_req", t.handleProxyRequest)
 	t.client.On("heartbeat_ack", t.handleHeartbeatAck)
+
+	// Register WebSocket proxy event handlers
+	t.client.On("ws_connect", t.handleWSConnect)
+	t.client.On("ws_frame", t.handleWSFrame)
+	t.client.On("ws_close", t.handleWSClose)
+	t.client.On("ws_check", t.handleWSCheck)
 
 	// Join the channel
 	if err := t.joinChannel(); err != nil {
@@ -178,13 +249,18 @@ func (t *Telephone) Start() error {
 	t.wg.Add(1)
 	go t.monitorConnection()
 
-	log.Println("Telephone started successfully")
+	logger.Info("Telephone started successfully")
 	return nil
 }
 
 // Stop gracefully shuts down the Telephone
 func (t *Telephone) Stop() error {
-	log.Println("Stopping Telephone...")
+	logger.Info("Stopping Telephone...")
+
+	// Close all backend WebSocket connections first
+	if t.wsManager != nil {
+		t.wsManager.CloseAll()
+	}
 
 	// Cancel context to stop background goroutines
 	t.cancel()
@@ -198,9 +274,9 @@ func (t *Telephone) Stop() error {
 
 	select {
 	case <-done:
-		log.Println("All active requests completed")
+		logger.Info("All active requests completed")
 	case <-time.After(30 * time.Second):
-		log.Println("Timeout waiting for active requests, forcing shutdown")
+		logger.Warn("Timeout waiting for active requests, forcing shutdown")
 	}
 
 	// Wait for background goroutines
@@ -208,15 +284,24 @@ func (t *Telephone) Stop() error {
 
 	// Close WebSocket client (permanent shutdown)
 	if err := t.client.Close(); err != nil {
-		log.Printf("Warning: error closing WebSocket client: %v", err)
+		logger.Warn("Error closing WebSocket client", "error", err)
 	}
 
 	// Close token store
 	if err := t.tokenStore.Close(); err != nil {
-		log.Printf("Warning: failed to close token store: %v", err)
+		logger.Warn("Failed to close token store", "error", err)
 	}
 
-	log.Println("Telephone stopped")
+	// Stop health check server
+	if t.healthServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := t.healthServer.Stop(ctx); err != nil {
+			logger.Warn("Error stopping health check server", "error", err)
+		}
+	}
+
+	logger.Info("Telephone stopped")
 	return nil
 }
 
@@ -248,7 +333,7 @@ func (t *Telephone) joinChannel() error {
 
 	msg := channels.NewMessage(topic, "phx_join", ref, map[string]interface{}{})
 
-	log.Printf("Joining channel: %s", topic)
+	logger.Info("Joining channel", "topic", topic)
 
 	reply, err := t.client.SendAndWait(msg, 10*time.Second)
 	if err != nil {
@@ -261,10 +346,11 @@ func (t *Telephone) joinChannel() error {
 	}
 
 	response := reply.GetResponse()
-	log.Printf("Channel join successful:")
-	log.Printf("  Status: %s", response["status"])
-	log.Printf("  Path: %s", response["path"])
-	log.Printf("  Expires in: %v seconds", response["expires_in"])
+	logger.Info("Channel join successful",
+		"status", response["status"],
+		"path", response["path"],
+		"expires_in", response["expires_in"],
+	)
 
 	return nil
 }
@@ -287,7 +373,7 @@ func (t *Telephone) heartbeatLoop() {
 			}
 
 			if err := t.sendHeartbeat(); err != nil {
-				log.Printf("Heartbeat error: %v", err)
+				logger.Error("Heartbeat error", "error", err)
 			}
 		}
 	}
@@ -312,13 +398,13 @@ func (t *Telephone) sendHeartbeat() error {
 	t.lastHeartbeat = time.Now()
 	t.heartbeatLock.Unlock()
 
-	log.Printf("Heartbeat sent (ref: %s)", ref)
+	logger.Debug("Heartbeat sent", "ref", ref)
 	return nil
 }
 
 // handleHeartbeatAck handles heartbeat acknowledgment from Plugboard
 func (t *Telephone) handleHeartbeatAck(msg *channels.Message) {
-	log.Printf("Heartbeat acknowledged")
+	logger.Debug("Heartbeat acknowledged")
 }
 
 // tokenRefreshLoop refreshes the JWT token at half of its lifespan
@@ -335,11 +421,22 @@ func (t *Telephone) tokenRefreshLoop() {
 
 		// If token is already past half-life, refresh immediately
 		if timeUntilRefresh == 0 {
-			log.Printf("Token is already at half-life, refreshing immediately")
+			logger.Info("Token is already at half-life, refreshing immediately")
 			timeUntilRefresh = 1 * time.Second
 		} else {
-			log.Printf("Token will be refreshed in %s (at half-life of %s lifespan)",
-				timeUntilRefresh, currentClaims.Lifespan())
+			// Add jitter: ±5% randomization for unpredictability
+			// This prevents multiple clients from refreshing at exactly the same time
+			if timeUntilRefresh > time.Minute {
+				jitterPercent := 0.05
+				jitterRange := time.Duration(float64(timeUntilRefresh) * jitterPercent)
+				jitter := secureRandomDuration(jitterRange*2) - jitterRange
+				timeUntilRefresh += jitter
+			}
+
+			logger.Info("Token refresh scheduled",
+				"refresh_in", timeUntilRefresh,
+				"lifespan", currentClaims.Lifespan(),
+			)
 		}
 
 		// Wait until half-life or context cancellation
@@ -350,7 +447,7 @@ func (t *Telephone) tokenRefreshLoop() {
 			// Skip token refresh if not connected
 			if !t.client.IsConnected() {
 				// If not connected, check again in 5 seconds
-				log.Printf("Not connected, will retry token refresh in 5 seconds")
+				logger.Info("Not connected, will retry token refresh in 5 seconds")
 				select {
 				case <-t.ctx.Done():
 					return
@@ -360,7 +457,7 @@ func (t *Telephone) tokenRefreshLoop() {
 			}
 
 			if err := t.refreshToken(); err != nil {
-				log.Printf("Token refresh error: %v", err)
+				logger.Error("Token refresh error", "error", err)
 				// On error, retry in 5 seconds
 				select {
 				case <-t.ctx.Done():
@@ -381,7 +478,7 @@ func (t *Telephone) refreshToken() error {
 
 	msg := channels.NewMessage(topic, "refresh_token", ref, map[string]interface{}{})
 
-	log.Printf("Requesting token refresh...")
+	logger.Info("Requesting token refresh...")
 
 	reply, err := t.client.SendAndWait(msg, 10*time.Second)
 	if err != nil {
@@ -410,32 +507,70 @@ func (t *Telephone) refreshToken() error {
 		return fmt.Errorf("invalid new token claims: %w", err)
 	}
 
-	// Save encrypted token to database
-	if err := t.tokenStore.SaveToken(newToken, newClaims.ExpiresAt()); err != nil {
-		log.Printf("Warning: failed to persist token to database: %v", err)
-		// Don't fail the refresh if persistence fails
+	// Save encrypted token to database with retry logic
+	if err := t.persistTokenWithRetry(newToken, newClaims.ExpiresAt(), 3); err != nil {
+		logger.Warn("Failed to persist token to database after retries", "error", err)
+		// Don't fail the refresh if persistence fails - token is still valid in memory
 	} else {
-		log.Printf("Token persisted to database")
+		logger.Info("Token persisted to database")
 	}
 
 	// Update in-memory token with thread safety
 	t.updateToken(newToken, newClaims)
 
-	// CRITICAL: Update the WebSocket URL with the new token
+	// CRITICAL: Update the client's token for reconnection
 	// Plugboard updates the token_hash in its database on refresh,
 	// so we must use the new token for reconnection
-	newWsURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", t.config.PlugboardURL, newToken)
-	t.client.UpdateURL(newWsURL)
+	// Token is added as query parameter per Phoenix Socket requirement
+	t.client.UpdateToken(newToken)
 
-	log.Printf("Token refreshed successfully (expires in %v)", newClaims.ExpiresIn())
-	log.Printf("WebSocket URL updated with new token for reconnection")
+	logger.Info("Token refreshed successfully",
+		"expires_in", newClaims.ExpiresIn(),
+	)
+	logger.Debug("Client token updated for reconnection")
 
 	// Cleanup old expired tokens
 	if err := t.tokenStore.CleanupExpiredTokens(); err != nil {
-		log.Printf("Warning: failed to cleanup expired tokens: %v", err)
+		logger.Warn("Failed to cleanup expired tokens", "error", err)
 	}
 
 	return nil
+}
+
+// persistTokenWithRetry attempts to save the token to the database with retries
+func (t *Telephone) persistTokenWithRetry(token string, expiresAt time.Time, maxRetries int) error {
+	var lastErr error
+	backoff := 100 * time.Millisecond
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err := t.tokenStore.SaveToken(token, expiresAt); err != nil {
+			lastErr = err
+			logger.Warn("Token persistence attempt failed",
+				"attempt", attempt,
+				"max_retries", maxRetries,
+				"error", err,
+			)
+
+			// Don't sleep after the last attempt
+			if attempt < maxRetries {
+				// Check if we're shutting down
+				select {
+				case <-t.ctx.Done():
+					return fmt.Errorf("shutdown during token persistence: %w", lastErr)
+				case <-time.After(backoff):
+					// Exponential backoff with jitter
+					backoff = backoff * 2
+					if backoff > 2*time.Second {
+						backoff = 2 * time.Second
+					}
+				}
+			}
+		} else {
+			return nil // Success
+		}
+	}
+
+	return fmt.Errorf("token persistence failed after %d attempts: %w", maxRetries, lastErr)
 }
 
 // validateProxyRequest validates incoming proxy request payload
@@ -446,8 +581,9 @@ func validateProxyRequest(payload map[string]interface{}) error {
 		return fmt.Errorf("missing or invalid request_id")
 	}
 	// Check length first to prevent regex DoS
-	if len(requestID) > 40 {
-		return fmt.Errorf("request_id too long (max 40 characters)")
+	// Standard UUID is exactly 36 characters (32 hex + 4 hyphens)
+	if len(requestID) != 36 {
+		return fmt.Errorf("request_id must be exactly 36 characters (UUID format)")
 	}
 	if !uuidRegex.MatchString(requestID) {
 		return fmt.Errorf("request_id must be a valid UUID")
@@ -494,7 +630,7 @@ func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 
 	// Validate request
 	if err := validateProxyRequest(msg.Payload); err != nil {
-		log.Printf("Invalid proxy request: %v", err)
+		logger.Error("Invalid proxy request", "error", err)
 		requestID, _ := msg.Payload["request_id"].(string)
 		if requestID != "" {
 			t.sendProxyResponse(&ProxyResponse{
@@ -512,12 +648,19 @@ func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 	method := msg.Payload["method"].(string)
 	path := msg.Payload["path"].(string)
 
-	log.Printf("Received proxy request [%s]: %s %s", requestID, method, path)
+	logger.Info("Received proxy request",
+		"request_id", requestID,
+		"method", method,
+		"path", path,
+	)
 
 	// Forward to backend
 	resp, err := t.forwardToBackend(msg.Payload)
 	if err != nil {
-		log.Printf("Error forwarding to backend [%s]: %v", requestID, err)
+		logger.Error("Error forwarding to backend",
+			"request_id", requestID,
+			"error", err,
+		)
 		t.sendProxyResponse(&ProxyResponse{
 			RequestID: requestID,
 			Status:    502,
@@ -530,7 +673,10 @@ func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 
 	// Send response back
 	if err := t.sendProxyResponse(resp); err != nil {
-		log.Printf("Error sending proxy response [%s]: %v", requestID, err)
+		logger.Error("Error sending proxy response",
+			"request_id", requestID,
+			"error", err,
+		)
 	}
 }
 
@@ -583,10 +729,24 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 	chunkSize := t.config.ChunkSize
 	var chunks []string
 	var totalSize int
-	buf := make([]byte, chunkSize)
+
+	// Get buffer from pool and ensure it's the right size
+	buf := bufferPool.Get().([]byte)
+	bufferFromPool := true
+	if len(buf) < chunkSize {
+		// Need a larger buffer - create one but don't return it to pool
+		buf = make([]byte, chunkSize)
+		bufferFromPool = false
+	}
+	defer func() {
+		// Only return standard-sized buffers to the pool to prevent memory growth
+		if bufferFromPool && len(buf) == defaultBufferSize {
+			bufferPool.Put(buf)
+		}
+	}()
 
 	for {
-		n, err := resp.Body.Read(buf)
+		n, err := resp.Body.Read(buf[:chunkSize])
 		if n > 0 {
 			chunks = append(chunks, string(buf[:n]))
 			totalSize += n
@@ -620,7 +780,12 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 		body = chunks[0]
 	}
 
-	log.Printf("Backend response [%s]: %d (%d bytes, %d chunks)", requestID, resp.StatusCode, totalSize, len(chunks))
+	logger.Info("Backend response",
+		"request_id", requestID,
+		"status", resp.StatusCode,
+		"bytes", totalSize,
+		"chunks", len(chunks),
+	)
 
 	return &ProxyResponse{
 		RequestID: requestID,
@@ -657,14 +822,16 @@ func (t *Telephone) sendProxyResponse(resp *ProxyResponse) error {
 	}
 
 	if resp.Chunked {
-		log.Printf("Sent chunked proxy response [%s]: %d (%d chunks)", resp.RequestID, resp.Status, len(resp.Chunks))
+		logger.Debug("Sent chunked proxy response",
+			"request_id", resp.RequestID,
+			"status", resp.Status,
+			"chunks", len(resp.Chunks),
+		)
 	} else {
-		log.Printf("Sent proxy response [%s]: %d", resp.RequestID, resp.Status)
+		logger.Debug("Sent proxy response",
+			"request_id", resp.RequestID,
+			"status", resp.Status,
+		)
 	}
 	return nil
-}
-
-// Helper to read body as JSON
-func readJSON(body string, v interface{}) error {
-	return json.Unmarshal([]byte(body), v)
 }

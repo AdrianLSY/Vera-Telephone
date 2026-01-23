@@ -33,6 +33,10 @@ type ChannelsClient interface {
 	// NextRef generates the next reference ID for messages
 	NextRef() string
 
-	// UpdateURL updates the WebSocket URL (useful for token refresh)
+	// UpdateURL updates the WebSocket URL (useful for reconnection)
 	UpdateURL(url string)
+
+	// UpdateToken updates the authentication token (used after token refresh)
+	// Token is sent as query parameter per Phoenix Socket requirement
+	UpdateToken(token string)
 }

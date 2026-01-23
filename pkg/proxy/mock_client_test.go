@@ -20,6 +20,7 @@ type MockChannelsClient struct {
 	connectDelay               time.Duration
 	disconnectCalled           bool
 	lastUpdatedURL             string
+	lastUpdatedToken           string // Token updated via UpdateToken
 	refreshToken               string // Token to return on refresh
 	refreshError               error  // Error to return on refresh
 	failCurrentSucceedOriginal bool   // For testing original token fallback
@@ -189,6 +190,13 @@ func (m *MockChannelsClient) UpdateURL(url string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastUpdatedURL = url
+}
+
+// UpdateToken updates the authentication token
+func (m *MockChannelsClient) UpdateToken(token string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastUpdatedToken = token
 }
 
 // NextRef returns next reference number

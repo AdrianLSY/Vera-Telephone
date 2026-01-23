@@ -11,25 +11,42 @@ func TestNewTokenStore(t *testing.T) {
 		name          string
 		dbPath        string
 		secretKeyBase string
+		timeout       time.Duration
 		expectError   bool
 	}{
 		{
 			name:          "valid parameters",
 			dbPath:        ":memory:",
 			secretKeyBase: "test-secret-key-base-for-encryption",
+			timeout:       10 * time.Second,
 			expectError:   false,
 		},
 		{
 			name:          "empty secret key",
 			dbPath:        ":memory:",
 			secretKeyBase: "",
+			timeout:       10 * time.Second,
+			expectError:   true,
+		},
+		{
+			name:          "zero timeout",
+			dbPath:        ":memory:",
+			secretKeyBase: "test-secret-key-base-for-encryption",
+			timeout:       0,
+			expectError:   true,
+		},
+		{
+			name:          "negative timeout",
+			dbPath:        ":memory:",
+			secretKeyBase: "test-secret-key-base-for-encryption",
+			timeout:       -1 * time.Second,
 			expectError:   true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store, err := NewTokenStore(tt.dbPath, tt.secretKeyBase, 10*time.Second)
+			store, err := NewTokenStore(tt.dbPath, tt.secretKeyBase, tt.timeout)
 
 			if tt.expectError {
 				if err == nil {

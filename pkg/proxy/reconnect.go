@@ -1,13 +1,13 @@
 package proxy
 
 import (
+	"errors"
 	"fmt"
-	"log"
 	"math"
-	"math/rand"
 	"time"
 
 	"github.com/verastack/telephone/pkg/auth"
+	"github.com/verastack/telephone/pkg/logger"
 )
 
 // reconnect handles reconnection logic with exponential backoff
@@ -16,7 +16,7 @@ func (t *Telephone) reconnect() error {
 	t.reconnecting.Lock()
 	if t.reconnectFlag {
 		t.reconnecting.Unlock()
-		return fmt.Errorf("reconnection already in progress")
+		return ErrReconnectionInProgress
 	}
 	t.reconnectFlag = true
 	t.reconnecting.Unlock()
@@ -33,52 +33,24 @@ func (t *Telephone) reconnect() error {
 	for {
 		select {
 		case <-t.ctx.Done():
-			return fmt.Errorf("reconnection cancelled")
+			return ErrReconnectionCancelled
 		default:
 		}
 
 		attempt++
 
-		log.Printf("Reconnection attempt %d (backoff: %v)", attempt, backoff)
+		logger.Info("Reconnection attempt",
+			"attempt", attempt,
+			"backoff", backoff,
+		)
 
-		// Try to connect with current token
-		if err := t.client.Connect(); err != nil {
-			log.Printf("Reconnection failed with current token: %v", err)
+		// Try to connect (with fallback to original token if needed)
+		connected := t.attemptConnection()
 
-			// If we have an original token that differs from current, try falling back to it
-			// This handles server restarts where refreshed tokens may not be recognized
-			currentToken := t.getCurrentToken()
-			if t.originalToken != "" && t.originalToken != currentToken {
-				log.Printf("Attempting reconnection with original token...")
-
-				// Temporarily update URL with original token
-				originalURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", t.config.PlugboardURL, t.originalToken)
-				t.client.UpdateURL(originalURL)
-
-				if err := t.client.Connect(); err != nil {
-					log.Printf("Reconnection failed with original token: %v", err)
-
-					// Restore current token URL
-					currentURL := fmt.Sprintf("%s?token=%s&vsn=2.0.0", t.config.PlugboardURL, currentToken)
-					t.client.UpdateURL(currentURL)
-				} else {
-					// Successfully connected with original token
-					// Update current token to original since that's what worked
-					log.Printf("Successfully reconnected with original token")
-
-					// Parse original token to get claims
-					if claims, err := auth.ParseJWTUnsafe(t.originalToken); err == nil {
-						t.updateToken(t.originalToken, claims)
-					}
-
-					// Continue to channel join below
-					goto channelJoin
-				}
-			}
-
+		if !connected {
 			// Check if we've exceeded max retries (if configured)
 			if t.config.MaxRetries > 0 && attempt >= t.config.MaxRetries {
-				return fmt.Errorf("max reconnection attempts (%d) exceeded", t.config.MaxRetries)
+				return fmt.Errorf("%w: %d attempts", ErrMaxRetriesExceeded, t.config.MaxRetries)
 			}
 
 			// Calculate next backoff with jitter
@@ -89,18 +61,16 @@ func (t *Telephone) reconnect() error {
 			case <-time.After(backoff):
 				// Continue to next attempt
 			case <-t.ctx.Done():
-				return fmt.Errorf("reconnection cancelled during backoff")
+				return ErrReconnectionCancelledDuringBackoff
 			}
 			continue
 		}
 
-	channelJoin:
-
 		// Successfully reconnected - try to rejoin channel
-		log.Printf("WebSocket reconnected, attempting to rejoin channel...")
+		logger.Info("WebSocket reconnected, attempting to rejoin channel...")
 
 		if err := t.joinChannel(); err != nil {
-			log.Printf("Failed to rejoin channel: %v", err)
+			logger.Error("Failed to rejoin channel", "error", err)
 
 			// Disconnect and retry
 			t.client.Disconnect()
@@ -111,12 +81,14 @@ func (t *Telephone) reconnect() error {
 			case <-time.After(backoff):
 				// Continue to next attempt
 			case <-t.ctx.Done():
-				return fmt.Errorf("reconnection cancelled during channel join retry")
+				return ErrReconnectionCancelledDuringChannelJoin
 			}
 			continue
 		}
 
-		log.Printf("Successfully reconnected and rejoined channel after %d attempts", attempt)
+		logger.Info("Successfully reconnected and rejoined channel",
+			"attempts", attempt,
+		)
 
 		// Reset heartbeat tracking
 		t.heartbeatLock.Lock()
@@ -125,6 +97,49 @@ func (t *Telephone) reconnect() error {
 
 		return nil
 	}
+}
+
+// attemptConnection tries to connect with the current token, falling back to the
+// original token if needed. Returns true if connection was successful.
+func (t *Telephone) attemptConnection() bool {
+	// Try to connect with current token
+	if err := t.client.Connect(); err == nil {
+		return true
+	}
+
+	logger.Warn("Reconnection failed with current token")
+
+	// If we have an original token that differs from current, try falling back to it
+	// This handles server restarts where refreshed tokens may not be recognized
+	currentToken := t.getCurrentToken()
+	if t.originalToken == "" || t.originalToken == currentToken {
+		return false
+	}
+
+	logger.Info("Attempting reconnection with original token...")
+
+	// Temporarily update client token to original
+	// Token is added as query parameter per Phoenix Socket requirement
+	t.client.UpdateToken(t.originalToken)
+
+	if err := t.client.Connect(); err != nil {
+		logger.Error("Reconnection failed with original token", "error", err)
+
+		// Restore current token
+		t.client.UpdateToken(currentToken)
+		return false
+	}
+
+	// Successfully connected with original token
+	// Update current token to original since that's what worked
+	logger.Info("Successfully reconnected with original token")
+
+	// Parse original token to get claims
+	if claims, err := auth.ParseJWTUnsafe(t.originalToken); err == nil {
+		t.updateToken(t.originalToken, claims)
+	}
+
+	return true
 }
 
 // monitorConnection monitors the WebSocket connection and reconnects if needed
@@ -144,15 +159,16 @@ func (t *Telephone) monitorConnection() {
 			// Check if connection is lost
 			if !t.client.IsConnected() {
 				consecutiveFailures++
-				log.Printf("Connection lost (failure %d), attempting to reconnect...",
-					consecutiveFailures)
+				logger.Warn("Connection lost, attempting to reconnect",
+					"consecutive_failures", consecutiveFailures,
+				)
 
 				if err := t.reconnect(); err != nil {
 					// Ignore "already in progress" errors
-					if err.Error() == "reconnection already in progress" {
+					if errors.Is(err, ErrReconnectionInProgress) {
 						continue
 					}
-					log.Printf("Reconnection failed: %v", err)
+					logger.Error("Reconnection failed", "error", err)
 
 					// Continue monitoring - will keep retrying indefinitely
 					continue
@@ -160,7 +176,7 @@ func (t *Telephone) monitorConnection() {
 
 				// Successfully reconnected
 				consecutiveFailures = 0
-				log.Printf("Connection restored successfully")
+				logger.Info("Connection restored successfully")
 			} else {
 				// Connection appears healthy, but check heartbeat timeout
 				t.heartbeatLock.RLock()
@@ -170,21 +186,23 @@ func (t *Telephone) monitorConnection() {
 				// If we haven't received a heartbeat ack in 3x the heartbeat interval, consider connection dead
 				heartbeatTimeout := t.config.HeartbeatInterval * 3
 				if !lastHB.IsZero() && time.Since(lastHB) > heartbeatTimeout {
-					log.Printf("Heartbeat timeout detected (last: %v ago, threshold: %v), reconnecting...",
-						time.Since(lastHB), heartbeatTimeout)
+					logger.Warn("Heartbeat timeout detected, reconnecting",
+						"last_heartbeat_ago", time.Since(lastHB),
+						"threshold", heartbeatTimeout,
+					)
 
 					// Force disconnect and reconnect
 					t.client.Disconnect()
 
 					if err := t.reconnect(); err != nil {
-						if err.Error() == "reconnection already in progress" {
+						if errors.Is(err, ErrReconnectionInProgress) {
 							continue
 						}
-						log.Printf("Reconnection after heartbeat timeout failed: %v", err)
+						logger.Error("Reconnection after heartbeat timeout failed", "error", err)
 						continue
 					}
 
-					log.Printf("Connection restored after heartbeat timeout")
+					logger.Info("Connection restored after heartbeat timeout")
 				} else {
 					// Connection is healthy
 					if consecutiveFailures > 0 {
@@ -197,6 +215,7 @@ func (t *Telephone) monitorConnection() {
 }
 
 // calculateBackoffWithJitter calculates exponential backoff with jitter to prevent thundering herd
+// Uses cryptographically secure random for jitter to prevent timing attacks
 func calculateBackoffWithJitter(attempt int, initial, max time.Duration) time.Duration {
 	// Exponential backoff: initial * 2^attempt
 	backoff := time.Duration(float64(initial) * math.Pow(2, float64(attempt-1)))
@@ -206,9 +225,11 @@ func calculateBackoffWithJitter(attempt int, initial, max time.Duration) time.Du
 		backoff = max
 	}
 
-	// Add jitter: ±25% randomization
+	// Add jitter: ±25% randomization using cryptographically secure random
 	jitterPercent := 0.25
-	jitter := time.Duration(float64(backoff) * jitterPercent * (rand.Float64()*2 - 1))
+	jitterRange := time.Duration(float64(backoff) * jitterPercent)
+	// Generate random value in range [0, 2*jitterRange) then subtract jitterRange to get [-jitterRange, +jitterRange)
+	jitter := secureRandomDuration(jitterRange*2) - jitterRange
 	backoff += jitter
 
 	// Ensure we don't go below initial or above max

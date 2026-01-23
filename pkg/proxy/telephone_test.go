@@ -61,9 +61,19 @@ func TestValidateProxyRequest(t *testing.T) {
 			errorMsg:    "missing or invalid request_id",
 		},
 		{
-			name: "invalid request_id format",
+			name: "invalid request_id format - wrong length",
 			payload: map[string]interface{}{
 				"request_id": "not-a-uuid",
+				"method":     "GET",
+				"path":       "/api/users",
+			},
+			expectError: true,
+			errorMsg:    "request_id must be exactly 36 characters",
+		},
+		{
+			name: "invalid request_id format - correct length but invalid",
+			payload: map[string]interface{}{
+				"request_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", // 36 chars (8-4-4-4-12) but not valid hex
 				"method":     "GET",
 				"path":       "/api/users",
 			},

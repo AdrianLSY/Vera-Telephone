@@ -40,7 +40,7 @@ func NewTokenStore(dbPath string, secretKeyBase string, timeout time.Duration) (
 	}
 
 	if timeout <= 0 {
-		timeout = 10 * time.Second // Default timeout
+		return nil, fmt.Errorf("timeout must be positive, got %v", timeout)
 	}
 
 	// Open SQLite database with busy timeout to handle concurrent access
@@ -55,6 +55,12 @@ func NewTokenStore(dbPath string, secretKeyBase string, timeout time.Duration) (
 	db.SetMaxOpenConns(1) // SQLite works best with single connection
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(time.Hour)
+
+	// Enable WAL mode for better concurrent read performance
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+	}
 
 	// Derive a 32-byte key from the secret key base using PBKDF2
 	// This is more secure than plain SHA-256
@@ -288,8 +294,14 @@ func (ts *TokenStore) CleanupExpiredTokens() error {
 	return nil
 }
 
-// Close closes the database connection
+// Close closes the database connection and securely zeros the secret key
 func (ts *TokenStore) Close() error {
+	// Zero out the secret key to prevent memory scanning attacks
+	for i := range ts.secretKey {
+		ts.secretKey[i] = 0
+	}
+	ts.secretKey = nil
+
 	return ts.db.Close()
 }
 

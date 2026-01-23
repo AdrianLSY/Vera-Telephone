@@ -9,14 +9,24 @@ import (
 type MessageType string
 
 const (
-	MessageTypeJoin       MessageType = "phx_join"
-	MessageTypeLeave      MessageType = "phx_leave"
-	MessageTypeReply      MessageType = "phx_reply"
-	MessageTypeHeartbeat  MessageType = "heartbeat"
+	MessageTypeJoin           MessageType = "phx_join"
+	MessageTypeLeave          MessageType = "phx_leave"
+	MessageTypeReply          MessageType = "phx_reply"
+	MessageTypeHeartbeat      MessageType = "heartbeat"
 	MessageTypeHeartbeatReply MessageType = "phx_reply"
-	MessageTypeProxyRequest MessageType = "proxy_req"
-	MessageTypeProxyResponse MessageType = "proxy_res"
-	MessageTypeRefreshToken MessageType = "refresh_token"
+	MessageTypeProxyRequest   MessageType = "proxy_req"
+	MessageTypeProxyResponse  MessageType = "proxy_res"
+	MessageTypeRefreshToken   MessageType = "refresh_token"
+
+	// WebSocket proxy message types
+	MessageTypeWSConnect     MessageType = "ws_connect"      // Client wants to connect to backend WebSocket
+	MessageTypeWSFrame       MessageType = "ws_frame"        // WebSocket frame (bidirectional)
+	MessageTypeWSClose       MessageType = "ws_close"        // Client closed WebSocket connection
+	MessageTypeWSConnected   MessageType = "ws_connected"    // Backend WebSocket connection established
+	MessageTypeWSClosed      MessageType = "ws_closed"       // Backend WebSocket connection closed
+	MessageTypeWSError       MessageType = "ws_error"        // WebSocket error occurred
+	MessageTypeWSCheck       MessageType = "ws_check"        // Pre-flight check for WebSocket support
+	MessageTypeWSCheckResult MessageType = "ws_check_result" // Result of WebSocket support check
 )
 
 // Message represents a Phoenix Channel message

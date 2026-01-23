@@ -22,6 +22,7 @@ Telephone is a sidecar process that maintains a persistent WebSocket connection 
 - **Chunked Responses** - Automatic chunking for large responses (>1MB)
 - **Fully Configurable** - All timeouts, backoff, and retry settings via environment variables
 - **Token Persistence** - Encrypted token storage with automatic refresh
+- **WebSocket Proxy** - Bidirectional WebSocket proxying to backend services
 
 ---
 
@@ -153,7 +154,30 @@ Telephone **automatically saves refreshed tokens** to an encrypted SQLite databa
 - Uses industry-standard AES-256-GCM authenticated encryption
 - Database file (`telephone.db`) contains only encrypted data
 - **Keep your `SECRET_KEY_BASE` secret!**
-- Tokens are sent via HTTP headers (not URL query parameters) to prevent log exposure
+- Tokens are sent as query parameters (required by Phoenix Socket)
+- Token leakage is mitigated via:
+  - Short-lived tokens with automatic refresh
+  - Clean URL logging (tokens stripped from logs)
+  - TLS in production (`wss://` encrypts query params in transit)
+  - No browser involvement (server-to-server communication)
+
+### Token Security Considerations
+
+**Why query parameters?**
+Phoenix Socket requires authentication tokens in query parameters, not HTTP headers. This is the standard Phoenix authentication pattern.
+
+**Security mitigations:**
+- **TLS in production**: Use `wss://` URLs to encrypt all communication including query parameters
+- **Short-lived tokens**: Tokens automatically refresh at half-life (e.g., 30-minute refresh for 1-hour tokens)
+- **Clean logging**: All logs use `GetCleanURL()` which strips tokens from URLs
+- **Server-to-server**: No browser caching, history, or referrer issues
+- **Encrypted storage**: Tokens encrypted at rest with AES-256-GCM
+
+**Production checklist:**
+- [ ] Use `wss://` (TLS) for PLUGBOARD_URL
+- [ ] Configure log sanitization to filter query parameters if additional security needed
+- [ ] Rotate SECRET_KEY_BASE periodically
+- [ ] Monitor token refresh logs for anomalies
 
 ### Database Location
 
@@ -209,9 +233,11 @@ docker run --rm -it \
 
 **All configuration variables are required - no defaults are provided.**
 
+See [`.env.example`](.env.example) for a complete example configuration with detailed comments.
+
 | Variable                      | Description                                    | Example Value                             |
 |-------------------------------|------------------------------------------------|-------------------------------------------|
-| `TELEPHONE_TOKEN`             | JWT token from Plugboard                       | `eyJhbGci...`                             |
+| `TELEPHONE_TOKEN`             | JWT token from Plugboard (optional*)           | `eyJhbGci...`                             |
 | `SECRET_KEY_BASE`             | Secret key for encrypting tokens (64 char hex) | `6a5c5a634bc0c4c7...`                     |
 | `PLUGBOARD_URL`               | WebSocket URL to Plugboard                     | `ws://localhost:4000/telephone/websocket` |
 | `BACKEND_HOST`                | Backend hostname                               | `localhost`                               |
@@ -228,6 +254,9 @@ docker run --rm -it \
 | `MAX_RESPONSE_SIZE`           | Maximum response size in bytes                 | `104857600`                               |
 | `CHUNK_SIZE`                  | Chunk size for streaming responses             | `1048576`                                 |
 | `DB_TIMEOUT`                  | Database operation timeout                     | `10s`                                     |
+| `HEALTH_CHECK_PORT`           | Port for health check HTTP server (optional)   | `8081`                                    |
+
+\* `TELEPHONE_TOKEN` is optional if a valid token exists in the database from a previous run.
 
 ---
 
@@ -249,6 +278,10 @@ docker run --rm -it \
 - Header and query parameter forwarding
 - Configurable request timeouts
 - Concurrent request handling
+- **WebSocket proxy** - Bidirectional WebSocket connections to backend services
+  - Transparent subprotocol negotiation
+  - Base64-encoded frame forwarding
+  - Graceful connection lifecycle management
 
 ### Response Handling
 - Standard responses
@@ -266,6 +299,7 @@ docker run --rm -it \
 - Connection status reporting
 - Token expiry tracking
 - Structured logging
+- **Health check endpoints** (optional) - Kubernetes-compatible `/health`, `/ready`, `/live` endpoints
 
 ---
 
@@ -392,6 +426,23 @@ curl http://localhost:4000/call/YOUR_PATH/
 
 Messages are JSON arrays: `[join_ref, ref, topic, event, payload]`
 
+### Protocol Version
+
+Telephone uses **Phoenix Channels V2 protocol**:
+
+- **Wire format**: JSON arrays `[join_ref, ref, topic, event, payload]`
+- **Version negotiation**: `vsn=2.0.0` query parameter in WebSocket URL
+- **Serializer**: Server must support `Phoenix.Socket.V2.JSONSerializer`
+
+The protocol version is sent as a query parameter during connection (matching the official Phoenix.js client behavior). Phoenix reads the `vsn` parameter to select the appropriate serializer:
+- With `?vsn=2.0.0`: Uses V2 serializer (JSON arrays)
+- Without `vsn`: Defaults to V1 serializer (JSON objects)
+
+**Example WebSocket URL**:
+```
+ws://localhost:4000/telephone/websocket?token=<jwt>&vsn=2.0.0
+```
+
 ### Key Events
 
 - **phx_join** - Join the telephone channel
@@ -400,6 +451,17 @@ Messages are JSON arrays: `[join_ref, ref, topic, event, payload]`
 - **proxy_req** - Incoming HTTP request from Plugboard
 - **proxy_res** - Response to Plugboard
 - **refresh_token** - Request new JWT token
+
+### WebSocket Proxy Events
+
+- **ws_check** - Plugboard requests pre-flight verification of backend WebSocket support (before upgrading client)
+- **ws_check_result** - Telephone responds with support status and negotiated subprotocol
+- **ws_connect** - Client wants to establish WebSocket connection to backend
+- **ws_connected** - Backend WebSocket connection established
+- **ws_frame** - WebSocket frame (bidirectional, base64-encoded)
+- **ws_close** - Client closed WebSocket connection
+- **ws_closed** - Backend closed WebSocket connection
+- **ws_error** - WebSocket error occurred
 
 ---
 
