@@ -1,0 +1,9 @@
+# Submodule Sync Configuration
+# This file configures automatic parent repository notification when this repo is updated.
+
+# Required: The parent repository to notify (owner/repo format)
+parent_repository: AdrianLSY/Vera-Reverse-Proxy
+
+# Optional: Directory name of this submodule in the parent repo
+# Defaults to this repository's name if not specified
+# submodule_name: Telephone

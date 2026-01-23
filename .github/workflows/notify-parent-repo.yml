@@ -1,0 +1,63 @@
+name: Notify Parent Repository
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  notify:
+    name: Notify parent repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/submodule-config.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Read configuration
+        id: config
+        run: |
+          CONFIG_FILE=".github/submodule-config.yml"
+
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "::error::Config file not found: $CONFIG_FILE"
+            echo "Please create $CONFIG_FILE with 'parent_repository: owner/repo'"
+            exit 1
+          fi
+
+          # Parse parent_repository (required)
+          PARENT_REPO=$(grep -E '^parent_repository:' "$CONFIG_FILE" | sed 's/^parent_repository:[[:space:]]*//' | tr -d '"'"'")
+          if [ -z "$PARENT_REPO" ]; then
+            echo "::error::parent_repository not defined in $CONFIG_FILE"
+            exit 1
+          fi
+
+          # Parse submodule_name (optional, defaults to repo name)
+          SUBMODULE_NAME=$(grep -E '^submodule_name:' "$CONFIG_FILE" | sed 's/^submodule_name:[[:space:]]*//' | tr -d '"'"'" || true)
+          if [ -z "$SUBMODULE_NAME" ]; then
+            SUBMODULE_NAME="${{ github.event.repository.name }}"
+          fi
+
+          echo "parent_repository=$PARENT_REPO" >> $GITHUB_OUTPUT
+          echo "submodule_name=$SUBMODULE_NAME" >> $GITHUB_OUTPUT
+          echo "Configured to notify: $PARENT_REPO (submodule: $SUBMODULE_NAME)"
+
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.VERA_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.VERA_AUTOMATION_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: Vera-Reverse-Proxy
+
+      - name: Notify parent repository
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          repository: ${{ steps.config.outputs.parent_repository }}
+          event-type: submodule-updated
+          client-payload: '{"submodule": "${{ steps.config.outputs.submodule_name }}", "sha": "${{ github.sha }}", "actor": "${{ github.actor }}"}'
