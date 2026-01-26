@@ -1,3 +1,4 @@
+// Package storage provides token persistence with encryption.
 package storage
 
 import (
@@ -7,7 +8,7 @@ import (
 	"time"
 )
 
-// BenchmarkSaveToken benchmarks token encryption and storage
+// BenchmarkSaveToken benchmarks token encryption and storage.
 func BenchmarkSaveToken(b *testing.B) {
 	dbPath := b.TempDir() + "/bench_tokens.db"
 	secretKey := "test-secret-key-base-at-least-64-characters-long-for-security-purposes"
@@ -23,6 +24,7 @@ func BenchmarkSaveToken(b *testing.B) {
 	expiresAt := time.Now().Add(1 * time.Hour)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		err := store.SaveToken(token, expiresAt)
 		if err != nil {
@@ -31,7 +33,7 @@ func BenchmarkSaveToken(b *testing.B) {
 	}
 }
 
-// BenchmarkLoadToken benchmarks token decryption and loading
+// BenchmarkLoadToken benchmarks token decryption and loading.
 func BenchmarkLoadToken(b *testing.B) {
 	dbPath := b.TempDir() + "/bench_tokens.db"
 	secretKey := "test-secret-key-base-at-least-64-characters-long-for-security-purposes"
@@ -46,12 +48,14 @@ func BenchmarkLoadToken(b *testing.B) {
 	// Save a token first
 	token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0IiwianRpIjoidGVzdCIsInBhdGhfaWQiOiJ0ZXN0IiwiaWF0IjoxNjAwMDAwMDAwLCJleHAiOjE2MDAwMDM2MDB9.test"
 	expiresAt := time.Now().Add(1 * time.Hour)
+
 	err = store.SaveToken(token, expiresAt)
 	if err != nil {
 		b.Fatalf("Failed to save token: %v", err)
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_, _, err := store.LoadToken()
 		if err != nil {
@@ -60,7 +64,7 @@ func BenchmarkLoadToken(b *testing.B) {
 	}
 }
 
-// BenchmarkEncryptDecrypt benchmarks encryption/decryption cycle
+// BenchmarkEncryptDecrypt benchmarks encryption/decryption cycle.
 func BenchmarkEncryptDecrypt(b *testing.B) {
 	dbPath := b.TempDir() + "/bench_tokens.db"
 	secretKey := "test-secret-key-base-at-least-64-characters-long-for-security-purposes"
@@ -75,6 +79,7 @@ func BenchmarkEncryptDecrypt(b *testing.B) {
 	plaintext := "test-token-data-for-encryption-benchmark"
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		encrypted, err := store.encrypt(plaintext)
 		if err != nil {
@@ -88,7 +93,7 @@ func BenchmarkEncryptDecrypt(b *testing.B) {
 	}
 }
 
-// BenchmarkConcurrentSaveLoad benchmarks concurrent saves and loads
+// BenchmarkConcurrentSaveLoad benchmarks concurrent saves and loads.
 func BenchmarkConcurrentSaveLoad(b *testing.B) {
 	dbPath := b.TempDir() + "/bench_tokens.db"
 	secretKey := "test-secret-key-base-at-least-64-characters-long-for-security-purposes"
@@ -124,7 +129,7 @@ func BenchmarkConcurrentSaveLoad(b *testing.B) {
 	})
 }
 
-// BenchmarkCleanupExpiredTokens benchmarks cleanup operation
+// BenchmarkCleanupExpiredTokens benchmarks cleanup operation.
 func BenchmarkCleanupExpiredTokens(b *testing.B) {
 	dbPath := b.TempDir() + "/bench_tokens.db"
 	secretKey := "test-secret-key-base-at-least-64-characters-long-for-security-purposes"
@@ -140,6 +145,7 @@ func BenchmarkCleanupExpiredTokens(b *testing.B) {
 	for i := 0; i < 100; i++ {
 		token := fmt.Sprintf("expired-token-%d", i)
 		expiresAt := time.Now().Add(-1 * time.Hour) // Already expired
+
 		err := store.SaveToken(token, expiresAt)
 		if err != nil {
 			b.Fatalf("Failed to save expired token: %v", err)
@@ -147,6 +153,7 @@ func BenchmarkCleanupExpiredTokens(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		err := store.CleanupExpiredTokens()
 		if err != nil {
@@ -157,7 +164,7 @@ func BenchmarkCleanupExpiredTokens(b *testing.B) {
 
 // Benchmark for key derivation is internal to the TokenStore
 
-// BenchmarkLargeTokenStorage benchmarks storing large tokens
+// BenchmarkLargeTokenStorage benchmarks storing large tokens.
 func BenchmarkLargeTokenStorage(b *testing.B) {
 	dbPath := b.TempDir() + "/bench_tokens.db"
 	secretKey := "test-secret-key-base-at-least-64-characters-long-for-security-purposes"
@@ -178,6 +185,7 @@ func BenchmarkLargeTokenStorage(b *testing.B) {
 	expiresAt := time.Now().Add(1 * time.Hour)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		err := store.SaveToken(largeToken, expiresAt)
 		if err != nil {
@@ -186,7 +194,7 @@ func BenchmarkLargeTokenStorage(b *testing.B) {
 	}
 }
 
-// BenchmarkDatabaseLocking benchmarks database lock contention
+// BenchmarkDatabaseLocking benchmarks database lock contention.
 func BenchmarkDatabaseLocking(b *testing.B) {
 	dbPath := b.TempDir() + "/bench_tokens.db"
 	secretKey := "test-secret-key-base-at-least-64-characters-long-for-security-purposes"
@@ -194,14 +202,22 @@ func BenchmarkDatabaseLocking(b *testing.B) {
 
 	// Create multiple store instances to simulate concurrent access
 	stores := make([]*TokenStore, 5)
+
 	for i := 0; i < 5; i++ {
 		store, err := NewTokenStore(dbPath, secretKey, timeout)
 		if err != nil {
 			b.Fatalf("Failed to create token store %d: %v", i, err)
 		}
-		defer store.Close()
+
 		stores[i] = store
 	}
+
+	// Cleanup all stores after benchmark completes
+	b.Cleanup(func() {
+		for _, store := range stores {
+			store.Close()
+		}
+	})
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -215,20 +231,23 @@ func BenchmarkDatabaseLocking(b *testing.B) {
 			if err != nil {
 				b.Fatalf("Failed to save token: %v", err)
 			}
+
 			i++
 		}
 	})
 }
 
-// BenchmarkFileSystemPerformance benchmarks file system operations
+// BenchmarkFileSystemPerformance benchmarks file system operations.
 func BenchmarkFileSystemPerformance(b *testing.B) {
 	tempDir := b.TempDir()
 	secretKey := "test-secret-key-base-at-least-64-characters-long-for-security-purposes"
 	timeout := 5 * time.Second
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		dbPath := fmt.Sprintf("%s/bench_%d.db", tempDir, i)
+
 		store, err := NewTokenStore(dbPath, secretKey, timeout)
 		if err != nil {
 			b.Fatalf("Failed to create token store: %v", err)
@@ -236,6 +255,7 @@ func BenchmarkFileSystemPerformance(b *testing.B) {
 
 		token := "test-token"
 		expiresAt := time.Now().Add(1 * time.Hour)
+
 		err = store.SaveToken(token, expiresAt)
 		if err != nil {
 			b.Fatalf("Failed to save token: %v", err)

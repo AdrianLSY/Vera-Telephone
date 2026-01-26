@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
 	"github.com/verastack/telephone/pkg/logger"
 )
 
@@ -23,12 +25,12 @@ var hopByHopHeaders = map[string]bool{
 	"connection":               true,
 }
 
-// isHopByHopHeader checks if a header should be stripped before forwarding
+// isHopByHopHeader checks if a header should be stripped before forwarding.
 func isHopByHopHeader(name string) bool {
 	return hopByHopHeaders[strings.ToLower(name)]
 }
 
-// EventHandler is called when events occur on backend WebSocket connections
+// EventHandler is called when events occur on backend WebSocket connections.
 type EventHandler interface {
 	// OnFrame is called when a frame is received from the backend
 	OnFrame(connectionID string, opcode Opcode, data []byte)
@@ -38,7 +40,7 @@ type EventHandler interface {
 	OnError(connectionID string, reason string)
 }
 
-// connection represents a single backend WebSocket connection
+// connection represents a single backend WebSocket connection.
 type connection struct {
 	id       string
 	conn     *websocket.Conn
@@ -49,7 +51,7 @@ type connection struct {
 	closedMu sync.RWMutex
 }
 
-// Manager manages backend WebSocket connections
+// Manager manages backend WebSocket connections.
 type Manager struct {
 	connections map[string]*connection
 	mu          sync.RWMutex
@@ -61,9 +63,10 @@ type Manager struct {
 	cancel context.CancelFunc
 }
 
-// NewManager creates a new WebSocket connection manager
+// NewManager creates a new WebSocket connection manager.
 func NewManager(handler EventHandler) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Manager{
 		connections: make(map[string]*connection),
 		handler:     handler,
@@ -72,7 +75,7 @@ func NewManager(handler EventHandler) *Manager {
 	}
 }
 
-// Connect establishes a WebSocket connection to the backend
+// Connect establishes a WebSocket connection to the backend.
 func (m *Manager) Connect(connectionID, url string, headers map[string]string) (string, error) {
 	// Check if connection already exists
 	m.mu.RLock()
@@ -84,6 +87,7 @@ func (m *Manager) Connect(connectionID, url string, headers map[string]string) (
 
 	// Build HTTP headers for the WebSocket handshake
 	httpHeaders := http.Header{}
+
 	var subprotocols []string
 
 	for k, v := range headers {
@@ -109,10 +113,16 @@ func (m *Manager) Connect(connectionID, url string, headers map[string]string) (
 
 	// Connect to backend
 	conn, resp, err := dialer.DialContext(m.ctx, url, httpHeaders)
+	if resp != nil && resp.Body != nil {
+		//nolint:errcheck // Best-effort close of HTTP response body
+		defer resp.Body.Close()
+	}
+
 	if err != nil {
 		if resp != nil {
 			return "", fmt.Errorf("websocket dial failed (status %d): %w", resp.StatusCode, err)
 		}
+
 		return "", fmt.Errorf("websocket dial failed: %w", err)
 	}
 
@@ -147,7 +157,7 @@ func (m *Manager) Connect(connectionID, url string, headers map[string]string) (
 	return selectedProtocol, nil
 }
 
-// SendFrame sends a frame to the backend WebSocket
+// SendFrame sends a frame to the backend WebSocket.
 func (m *Manager) SendFrame(connectionID string, opcode Opcode, data []byte) error {
 	m.mu.RLock()
 	c, exists := m.connections[connectionID]
@@ -166,6 +176,7 @@ func (m *Manager) SendFrame(connectionID string, opcode Opcode, data []byte) err
 
 	// Map opcode to websocket message type
 	var messageType int
+
 	switch opcode {
 	case OpcodeText:
 		messageType = websocket.TextMessage
@@ -176,12 +187,14 @@ func (m *Manager) SendFrame(connectionID string, opcode Opcode, data []byte) err
 		c.writeMu.Lock()
 		err := c.conn.WriteControl(websocket.PingMessage, data, noDeadline)
 		c.writeMu.Unlock()
+
 		return err
 	case OpcodePong:
 		// Send pong using WriteControl
 		c.writeMu.Lock()
 		err := c.conn.WriteControl(websocket.PongMessage, data, noDeadline)
 		c.writeMu.Unlock()
+
 		return err
 	default:
 		return fmt.Errorf("unknown opcode: %s", opcode)
@@ -195,7 +208,7 @@ func (m *Manager) SendFrame(connectionID string, opcode Opcode, data []byte) err
 	return err
 }
 
-// Close closes a backend WebSocket connection
+// Close closes a backend WebSocket connection.
 func (m *Manager) Close(connectionID string, code int, reason string) error {
 	m.mu.RLock()
 	c, exists := m.connections[connectionID]
@@ -208,7 +221,7 @@ func (m *Manager) Close(connectionID string, code int, reason string) error {
 	return m.closeConnection(c, code, reason)
 }
 
-// CloseAll closes all backend WebSocket connections
+// CloseAll closes all backend WebSocket connections.
 func (m *Manager) CloseAll() {
 	logger.Info("Closing all WebSocket connections...")
 
@@ -217,6 +230,7 @@ func (m *Manager) CloseAll() {
 
 	// Get all connections
 	m.mu.Lock()
+
 	connections := make([]*connection, 0, len(m.connections))
 	for _, c := range m.connections {
 		connections = append(connections, c)
@@ -225,6 +239,7 @@ func (m *Manager) CloseAll() {
 
 	// Close all connections with "going away" code
 	for _, c := range connections {
+		//nolint:errcheck,gosec // Best-effort close during shutdown
 		m.closeConnection(c, websocket.CloseGoingAway, "Telephone shutting down")
 	}
 
@@ -234,13 +249,14 @@ func (m *Manager) CloseAll() {
 	logger.Info("All WebSocket connections closed")
 }
 
-// closeConnection closes a single connection
+// closeConnection closes a single connection.
 func (m *Manager) closeConnection(c *connection, code int, reason string) error {
 	c.closedMu.Lock()
 	if c.closed {
 		c.closedMu.Unlock()
 		return nil
 	}
+
 	c.closed = true
 	c.closedMu.Unlock()
 
@@ -256,7 +272,8 @@ func (m *Manager) closeConnection(c *connection, code int, reason string) error 
 	)
 	c.writeMu.Unlock()
 
-	// Close the underlying connection
+	// Close the underlying connection (best-effort, error already captured from WriteControl)
+	//nolint:errcheck,gosec // Close is best-effort; WriteControl error is returned
 	c.conn.Close()
 
 	// Remove from map
@@ -273,7 +290,7 @@ func (m *Manager) closeConnection(c *connection, code int, reason string) error 
 	return err
 }
 
-// receiveLoop reads frames from the backend WebSocket and forwards them
+// receiveLoop reads frames from the backend WebSocket and forwards them.
 func (m *Manager) receiveLoop(c *connection) {
 	defer m.wg.Done()
 	defer func() {
@@ -300,7 +317,8 @@ func (m *Manager) receiveLoop(c *connection) {
 			}
 
 			// Handle close error
-			if closeErr, ok := err.(*websocket.CloseError); ok {
+			var closeErr *websocket.CloseError
+			if errors.As(err, &closeErr) {
 				logger.Info("Backend WebSocket closed",
 					"connection_id", c.id,
 					"code", closeErr.Code,
@@ -314,11 +332,13 @@ func (m *Manager) receiveLoop(c *connection) {
 				)
 				m.handler.OnError(c.id, err.Error())
 			}
+
 			return
 		}
 
 		// Convert message type to opcode
 		var opcode Opcode
+
 		switch messageType {
 		case websocket.TextMessage:
 			opcode = OpcodeText
@@ -333,6 +353,7 @@ func (m *Manager) receiveLoop(c *connection) {
 				"connection_id", c.id,
 				"message_type", messageType,
 			)
+
 			continue
 		}
 
@@ -341,17 +362,17 @@ func (m *Manager) receiveLoop(c *connection) {
 	}
 }
 
-// DecodeBase64 decodes a base64-encoded string to bytes
+// DecodeBase64 decodes a base64-encoded string to bytes.
 func DecodeBase64(data string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(data)
 }
 
-// EncodeBase64 encodes bytes to a base64 string
+// EncodeBase64 encodes bytes to a base64 string.
 func EncodeBase64(data []byte) string {
 	return base64.StdEncoding.EncodeToString(data)
 }
 
-// noDeadline is a zero time used for WebSocket control messages (no deadline)
+// noDeadline is a zero time used for WebSocket control messages (no deadline).
 var noDeadline time.Time
 
 // CheckSupport attempts a WebSocket connection to verify backend support.
@@ -362,6 +383,7 @@ var noDeadline time.Time
 func (m *Manager) CheckSupport(ctx context.Context, url string, headers map[string]string) (string, error) {
 	// Build HTTP headers for the WebSocket handshake
 	httpHeaders := http.Header{}
+
 	var subprotocols []string
 
 	for k, v := range headers {
@@ -388,10 +410,16 @@ func (m *Manager) CheckSupport(ctx context.Context, url string, headers map[stri
 
 	// Attempt connection with context timeout
 	conn, resp, err := dialer.DialContext(ctx, url, httpHeaders)
+	if resp != nil && resp.Body != nil {
+		//nolint:errcheck // Best-effort close of HTTP response body
+		defer resp.Body.Close()
+	}
+
 	if err != nil {
 		if resp != nil {
 			return "", fmt.Errorf("websocket check failed (status %d): %w", resp.StatusCode, err)
 		}
+
 		return "", fmt.Errorf("websocket check failed: %w", err)
 	}
 
@@ -399,11 +427,13 @@ func (m *Manager) CheckSupport(ctx context.Context, url string, headers map[stri
 	protocol := conn.Subprotocol()
 
 	// Close immediately - we only needed to verify support
+	//nolint:errcheck,gosec // Best-effort close for check operation
 	conn.WriteControl(
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "check complete"),
 		time.Now().Add(time.Second),
 	)
+	//nolint:errcheck,gosec // Best-effort close for check operation
 	conn.Close()
 
 	logger.Debug("WebSocket check successful",

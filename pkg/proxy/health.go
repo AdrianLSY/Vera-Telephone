@@ -11,7 +11,7 @@ import (
 	"github.com/verastack/telephone/pkg/logger"
 )
 
-// HealthStatus represents the health check response
+// HealthStatus represents the health check response.
 type HealthStatus struct {
 	Status      string `json:"status"`
 	Connected   bool   `json:"connected"`
@@ -21,7 +21,7 @@ type HealthStatus struct {
 	Version     string `json:"version,omitempty"`
 }
 
-// healthServer manages the HTTP health check endpoint
+// healthServer manages the HTTP health check endpoint.
 type healthServer struct {
 	server    *http.Server
 	telephone *Telephone
@@ -29,7 +29,7 @@ type healthServer struct {
 	running   atomic.Bool
 }
 
-// newHealthServer creates a new health check server
+// newHealthServer creates a new health check server.
 func newHealthServer(tel *Telephone, port int) *healthServer {
 	hs := &healthServer{
 		telephone: tel,
@@ -56,7 +56,7 @@ func newHealthServer(tel *Telephone, port int) *healthServer {
 	return hs
 }
 
-// Start starts the health check server
+// Start starts the health check server.
 func (hs *healthServer) Start() error {
 	if hs.running.Load() {
 		return fmt.Errorf("health server already running")
@@ -69,23 +69,25 @@ func (hs *healthServer) Start() error {
 		if err := hs.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("Health check server error", "error", err)
 		}
+
 		hs.running.Store(false)
 	}()
 
 	return nil
 }
 
-// Stop gracefully stops the health check server
+// Stop gracefully stops the health check server.
 func (hs *healthServer) Stop(ctx context.Context) error {
 	if !hs.running.Load() {
 		return nil
 	}
 
 	logger.Info("Stopping health check server...")
+
 	return hs.server.Shutdown(ctx)
 }
 
-// handleHealth returns the overall health status
+// handleHealth returns the overall health status.
 func (hs *healthServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -95,6 +97,7 @@ func (hs *healthServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	status := hs.getHealthStatus()
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if status.Status == "healthy" {
 		w.WriteHeader(http.StatusOK)
 	} else {
@@ -119,13 +122,21 @@ func (hs *healthServer) handleReady(w http.ResponseWriter, r *http.Request) {
 
 	if connected && tokenValid {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ready"))
+
+		if _, err := w.Write([]byte("ready")); err != nil {
+			logger.Error("Failed to write ready response", "error", err)
+		}
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
+
 		if !connected {
-			w.Write([]byte("not connected to Plugboard"))
+			if _, err := w.Write([]byte("not connected to Plugboard")); err != nil {
+				logger.Error("Failed to write not connected response", "error", err)
+			}
 		} else {
-			w.Write([]byte("token expired or invalid"))
+			if _, err := w.Write([]byte("token expired or invalid")); err != nil {
+				logger.Error("Failed to write token invalid response", "error", err)
+			}
 		}
 	}
 }
@@ -139,10 +150,13 @@ func (hs *healthServer) handleLive(w http.ResponseWriter, r *http.Request) {
 
 	// Live if the process is running (always true if we can respond)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("alive"))
+
+	if _, err := w.Write([]byte("alive")); err != nil {
+		logger.Error("Failed to write alive response", "error", err)
+	}
 }
 
-// getHealthStatus builds the health status response
+// getHealthStatus builds the health status response.
 func (hs *healthServer) getHealthStatus() HealthStatus {
 	connected := hs.telephone.client.IsConnected()
 	uptime := time.Since(hs.startTime)
@@ -157,6 +171,7 @@ func (hs *healthServer) getHealthStatus() HealthStatus {
 	hs.telephone.heartbeatLock.RLock()
 	lastHB := hs.telephone.lastHeartbeat
 	hs.telephone.heartbeatLock.RUnlock()
+
 	if !lastHB.IsZero() {
 		status.LastHB = time.Since(lastHB).Round(time.Second).String() + " ago"
 	}
@@ -165,6 +180,7 @@ func (hs *healthServer) getHealthStatus() HealthStatus {
 	hs.telephone.tokenMu.RLock()
 	claims := hs.telephone.claims
 	hs.telephone.tokenMu.RUnlock()
+
 	if claims != nil {
 		expiresIn := claims.ExpiresIn()
 		if expiresIn > 0 {
@@ -175,18 +191,19 @@ func (hs *healthServer) getHealthStatus() HealthStatus {
 	}
 
 	// Determine overall status
-	if connected && hs.telephone.isTokenValid() {
+	switch {
+	case connected && hs.telephone.isTokenValid():
 		status.Status = "healthy"
-	} else if connected {
+	case connected:
 		status.Status = "degraded" // Connected but token issues
-	} else {
+	default:
 		status.Status = "unhealthy"
 	}
 
 	return status
 }
 
-// isTokenValid checks if the current token is still valid
+// isTokenValid checks if the current token is still valid.
 func (t *Telephone) isTokenValid() bool {
 	t.tokenMu.RLock()
 	claims := t.claims

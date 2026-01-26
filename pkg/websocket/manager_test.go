@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// mockEventHandler implements EventHandler for testing
+// mockEventHandler implements EventHandler for testing.
 type mockEventHandler struct {
 	mu      sync.Mutex
 	frames  []frameEvent
@@ -71,7 +72,7 @@ func (m *mockEventHandler) OnClose(connectionID string, code int, reason string)
 	}
 }
 
-func (m *mockEventHandler) OnError(connectionID string, reason string) {
+func (m *mockEventHandler) OnError(connectionID, reason string) {
 	m.mu.Lock()
 	event := errorEvent{connectionID, reason}
 	m.errors = append(m.errors, event)
@@ -83,20 +84,22 @@ func (m *mockEventHandler) OnError(connectionID string, reason string) {
 	}
 }
 
-// upgrader for test WebSocket server
+// upgrader for test WebSocket server.
 var testUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(_ *http.Request) bool { return true },
 }
 
-// createTestWSServer creates a test WebSocket server
+// createTestWSServer creates a test WebSocket server.
 func createTestWSServer(t *testing.T, handler func(*websocket.Conn)) *httptest.Server {
 	t.Helper()
+
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := testUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			t.Logf("Upgrade error: %v", err)
 			return
 		}
+
 		defer conn.Close()
 		handler(conn)
 	}))
@@ -121,6 +124,7 @@ func TestNewManager(t *testing.T) {
 
 func TestManagerConnect(t *testing.T) {
 	handler := newMockEventHandler()
+
 	manager := NewManager(handler)
 	defer manager.CloseAll()
 
@@ -162,6 +166,7 @@ func TestManagerConnect(t *testing.T) {
 
 func TestManagerConnectDuplicate(t *testing.T) {
 	handler := newMockEventHandler()
+
 	manager := NewManager(handler)
 	defer manager.CloseAll()
 
@@ -192,20 +197,24 @@ func TestManagerConnectDuplicate(t *testing.T) {
 
 func TestManagerConnectWithSubprotocols(t *testing.T) {
 	handler := newMockEventHandler()
+
 	manager := NewManager(handler)
 	defer manager.CloseAll()
 
 	// Create server that selects a subprotocol
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{
-			CheckOrigin:  func(r *http.Request) bool { return true },
+			CheckOrigin:  func(_ *http.Request) bool { return true },
 			Subprotocols: []string{"graphql-ws"},
 		}
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
+
 		defer conn.Close()
+
 		for {
 			_, _, err := conn.ReadMessage()
 			if err != nil {
@@ -233,6 +242,7 @@ func TestManagerConnectWithSubprotocols(t *testing.T) {
 
 func TestManagerSendFrame(t *testing.T) {
 	handler := newMockEventHandler()
+
 	manager := NewManager(handler)
 	defer manager.CloseAll()
 
@@ -258,6 +268,7 @@ func TestManagerSendFrame(t *testing.T) {
 
 	// Send a text frame
 	testData := []byte("hello world")
+
 	err = manager.SendFrame("conn-1", OpcodeText, testData)
 	if err != nil {
 		t.Fatalf("SendFrame failed: %v", err)
@@ -266,7 +277,7 @@ func TestManagerSendFrame(t *testing.T) {
 	// Verify the frame was received
 	select {
 	case data := <-received:
-		if string(data) != string(testData) {
+		if !bytes.Equal(data, testData) {
 			t.Errorf("Expected %s, got %s", testData, data)
 		}
 	case <-time.After(2 * time.Second):
@@ -276,6 +287,7 @@ func TestManagerSendFrame(t *testing.T) {
 
 func TestManagerSendFrameToNonexistent(t *testing.T) {
 	handler := newMockEventHandler()
+
 	manager := NewManager(handler)
 	defer manager.CloseAll()
 
@@ -287,6 +299,7 @@ func TestManagerSendFrameToNonexistent(t *testing.T) {
 
 func TestManagerReceiveFrame(t *testing.T) {
 	handler := newMockEventHandler()
+
 	manager := NewManager(handler)
 	defer manager.CloseAll()
 
@@ -316,9 +329,11 @@ func TestManagerReceiveFrame(t *testing.T) {
 		if frame.connectionID != "conn-1" {
 			t.Errorf("Expected connection ID 'conn-1', got '%s'", frame.connectionID)
 		}
+
 		if frame.opcode != OpcodeText {
 			t.Errorf("Expected opcode 'text', got '%s'", frame.opcode)
 		}
+
 		if string(frame.data) != "hello from server" {
 			t.Errorf("Expected 'hello from server', got '%s'", frame.data)
 		}
@@ -406,6 +421,7 @@ func TestManagerCloseAll(t *testing.T) {
 
 func TestManagerBackendClose(t *testing.T) {
 	handler := newMockEventHandler()
+
 	manager := NewManager(handler)
 	defer manager.CloseAll()
 
@@ -435,6 +451,7 @@ func TestManagerBackendClose(t *testing.T) {
 		if closeEvt.connectionID != "conn-1" {
 			t.Errorf("Expected connection ID 'conn-1', got '%s'", closeEvt.connectionID)
 		}
+
 		if closeEvt.code != 1000 {
 			t.Errorf("Expected close code 1000, got %d", closeEvt.code)
 		}
@@ -457,11 +474,13 @@ func TestBase64EncodeDecode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			encoded := EncodeBase64(tt.data)
+
 			decoded, err := DecodeBase64(encoded)
 			if err != nil {
 				t.Fatalf("DecodeBase64 failed: %v", err)
 			}
-			if string(decoded) != string(tt.data) {
+
+			if !bytes.Equal(decoded, tt.data) {
 				t.Errorf("Round-trip failed: expected %v, got %v", tt.data, decoded)
 			}
 		})

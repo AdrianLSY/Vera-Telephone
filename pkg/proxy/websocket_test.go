@@ -12,32 +12,35 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
 	"github.com/verastack/telephone/pkg/auth"
 	"github.com/verastack/telephone/pkg/channels"
 	"github.com/verastack/telephone/pkg/config"
 	ws "github.com/verastack/telephone/pkg/websocket"
 )
 
-// testUpgrader for test WebSocket server
+// testUpgrader for test WebSocket server.
 var wsTestUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(_ *http.Request) bool { return true },
 }
 
-// createWSTestServer creates a test WebSocket server
+// createWSTestServer creates a test WebSocket server.
 func createWSTestServer(t *testing.T, handler func(*websocket.Conn)) *httptest.Server {
 	t.Helper()
+
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := wsTestUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			t.Logf("Upgrade error: %v", err)
 			return
 		}
+
 		defer conn.Close()
 		handler(conn)
 	}))
 }
 
-// mockWSChannelsClient implements ChannelsClient for WebSocket testing
+// mockWSChannelsClient implements ChannelsClient for WebSocket testing.
 type mockWSChannelsClient struct {
 	mu           sync.Mutex
 	connected    bool
@@ -56,6 +59,7 @@ func (m *mockWSChannelsClient) Connect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.connected = true
+
 	return nil
 }
 
@@ -63,6 +67,7 @@ func (m *mockWSChannelsClient) Disconnect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.connected = false
+
 	return nil
 }
 
@@ -73,6 +78,7 @@ func (m *mockWSChannelsClient) Close() error {
 func (m *mockWSChannelsClient) IsConnected() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	return m.connected
 }
 
@@ -80,48 +86,59 @@ func (m *mockWSChannelsClient) Send(msg *channels.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sentMessages = append(m.sentMessages, msg)
+
 	return nil
 }
 
-func (m *mockWSChannelsClient) SendAndWait(msg *channels.Message, timeout time.Duration) (*channels.Message, error) {
+func (m *mockWSChannelsClient) SendAndWait(_ *channels.Message, _ time.Duration) (*channels.Message, error) {
 	return nil, nil
 }
 
-func (m *mockWSChannelsClient) On(event string, handler channels.MessageHandler) {}
+func (m *mockWSChannelsClient) On(_ string, _ channels.MessageHandler) {}
 
 func (m *mockWSChannelsClient) NextRef() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.refCounter++
+
 	return string(rune('0' + m.refCounter))
 }
 
-func (m *mockWSChannelsClient) UpdateURL(url string) {}
+func (m *mockWSChannelsClient) UpdateURL(_ string) {}
 
-func (m *mockWSChannelsClient) UpdateToken(token string) {}
+func (m *mockWSChannelsClient) UpdateToken(_ string) {}
 
+// getLastMessage returns the last sent message (used for test assertions).
+//
+//nolint:unused // Helper method for future test assertions
 func (m *mockWSChannelsClient) getLastMessage() *channels.Message {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	if len(m.sentMessages) == 0 {
 		return nil
 	}
+
 	return m.sentMessages[len(m.sentMessages)-1]
 }
 
 func (m *mockWSChannelsClient) getMessagesByEvent(event string) []*channels.Message {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	var result []*channels.Message
+
 	for _, msg := range m.sentMessages {
 		if msg.Event == event {
 			result = append(result, msg)
 		}
 	}
+
 	return result
 }
 
-// createTestTelephoneWithWS creates a Telephone instance configured for WebSocket testing
+// createTestTelephoneWithWS creates a Telephone instance configured for WebSocket testing.
 func createTestTelephoneWithWS(t *testing.T, backendHost string, backendPort int) (*Telephone, *mockWSChannelsClient) {
 	t.Helper()
 
@@ -132,6 +149,7 @@ func createTestTelephoneWithWS(t *testing.T, backendHost string, backendPort int
 	claims, _ := auth.ParseJWTUnsafe(token)
 
 	ctx, cancel := context.WithCancel(context.Background())
+
 	t.Cleanup(func() { cancel() })
 
 	cfg := &config.Config{
@@ -349,7 +367,6 @@ func TestHandleWSClose(t *testing.T) {
 		},
 	}
 	tel.handleWSFrame(frameMsg)
-	// Should not panic, just log error
 }
 
 func TestHandleWSConnectMissingConnectionID(t *testing.T) {
@@ -505,12 +522,14 @@ func TestOnFrameCallback(t *testing.T) {
 	if msg.Payload["connection_id"] != "conn-callback" {
 		t.Errorf("Expected connection_id 'conn-callback', got '%v'", msg.Payload["connection_id"])
 	}
+
 	if msg.Payload["opcode"] != "text" {
 		t.Errorf("Expected opcode 'text', got '%v'", msg.Payload["opcode"])
 	}
 
 	// Verify data is base64 encoded
 	encodedData := msg.Payload["data"].(string)
+
 	decoded, _ := base64.StdEncoding.DecodeString(encodedData)
 	if string(decoded) != "hello" {
 		t.Errorf("Expected 'hello', got '%s'", string(decoded))
@@ -534,9 +553,11 @@ func TestOnCloseCallback(t *testing.T) {
 	if msg.Payload["connection_id"] != "conn-close-cb" {
 		t.Errorf("Expected connection_id 'conn-close-cb', got '%v'", msg.Payload["connection_id"])
 	}
+
 	if msg.Payload["code"] != 1000 {
 		t.Errorf("Expected code 1000, got '%v'", msg.Payload["code"])
 	}
+
 	if msg.Payload["reason"] != "normal closure" {
 		t.Errorf("Expected reason 'normal closure', got '%v'", msg.Payload["reason"])
 	}
@@ -559,6 +580,7 @@ func TestOnErrorCallback(t *testing.T) {
 	if msg.Payload["connection_id"] != "conn-error-cb" {
 		t.Errorf("Expected connection_id 'conn-error-cb', got '%v'", msg.Payload["connection_id"])
 	}
+
 	if msg.Payload["reason"] != "connection_refused" {
 		t.Errorf("Expected reason 'connection_refused', got '%v'", msg.Payload["reason"])
 	}
@@ -616,6 +638,7 @@ func TestBackendFrameForwarding(t *testing.T) {
 
 	// Decode and verify data
 	encodedData := msg.Payload["data"].(string)
+
 	decoded, _ := base64.StdEncoding.DecodeString(encodedData)
 	if string(decoded) != "hello from backend" {
 		t.Errorf("Expected 'hello from backend', got '%s'", string(decoded))

@@ -10,7 +10,7 @@ import (
 	"github.com/verastack/telephone/pkg/websocket"
 )
 
-// handleWSConnect handles the ws_connect event from Plugboard
+// handleWSConnect handles the ws_connect event from Plugboard.
 func (t *Telephone) handleWSConnect(msg *channels.Message) {
 	// Check if we're shutting down
 	select {
@@ -27,11 +27,12 @@ func (t *Telephone) handleWSConnect(msg *channels.Message) {
 		return
 	}
 
-	path, _ := msg.Payload["path"].(string)
-	queryString, _ := msg.Payload["query_string"].(string)
+	path, _ := msg.Payload["path"].(string)                //nolint:errcheck // Type assertion fallback
+	queryString, _ := msg.Payload["query_string"].(string) //nolint:errcheck // Type assertion fallback
 
 	// Extract headers
 	headers := make(map[string]string)
+
 	if rawHeaders, ok := msg.Payload["headers"].(map[string]interface{}); ok {
 		for k, v := range rawHeaders {
 			if str, ok := v.(string); ok {
@@ -56,6 +57,7 @@ func (t *Telephone) handleWSConnect(msg *channels.Message) {
 			"error", err,
 		)
 		t.sendWSError(connectionID, websocket.ErrConnectionRefused)
+
 		return
 	}
 
@@ -63,7 +65,7 @@ func (t *Telephone) handleWSConnect(msg *channels.Message) {
 	t.sendWSConnected(connectionID, protocol)
 }
 
-// handleWSFrame handles the ws_frame event from Plugboard (client -> backend)
+// handleWSFrame handles the ws_frame event from Plugboard (client -> backend).
 func (t *Telephone) handleWSFrame(msg *channels.Message) {
 	// Check if we're shutting down
 	select {
@@ -79,10 +81,10 @@ func (t *Telephone) handleWSFrame(msg *channels.Message) {
 		return
 	}
 
-	opcodeStr, _ := msg.Payload["opcode"].(string)
+	opcodeStr, _ := msg.Payload["opcode"].(string) //nolint:errcheck // Type assertion fallback
 	opcode := websocket.Opcode(opcodeStr)
 
-	dataB64, _ := msg.Payload["data"].(string)
+	dataB64, _ := msg.Payload["data"].(string) //nolint:errcheck // Type assertion fallback
 
 	// Decode base64 data
 	data, err := websocket.DecodeBase64(dataB64)
@@ -92,6 +94,7 @@ func (t *Telephone) handleWSFrame(msg *channels.Message) {
 			"error", err,
 		)
 		t.sendWSError(connectionID, websocket.ErrInvalidFrameData)
+
 		return
 	}
 
@@ -102,15 +105,15 @@ func (t *Telephone) handleWSFrame(msg *channels.Message) {
 			"error", err,
 		)
 		t.sendWSError(connectionID, websocket.ErrBackendError)
+
 		return
 	}
 }
 
-// handleWSClose handles the ws_close event from Plugboard (client closed)
+// handleWSClose handles the ws_close event from Plugboard (client closed).
 func (t *Telephone) handleWSClose(msg *channels.Message) {
 	// Note: We don't check context here because close requests should be processed
 	// even during shutdown to ensure clean connection termination
-
 	connectionID, ok := msg.Payload["connection_id"].(string)
 	if !ok || connectionID == "" {
 		logger.Error("ws_close: missing or invalid connection_id")
@@ -122,7 +125,7 @@ func (t *Telephone) handleWSClose(msg *channels.Message) {
 		code = int(codeFloat)
 	}
 
-	reason, _ := msg.Payload["reason"].(string)
+	reason, _ := msg.Payload["reason"].(string) //nolint:errcheck // Type assertion fallback
 
 	logger.Info("WebSocket close request",
 		"connection_id", connectionID,
@@ -139,22 +142,22 @@ func (t *Telephone) handleWSClose(msg *channels.Message) {
 	}
 }
 
-// OnFrame implements websocket.EventHandler - called when backend sends a frame
+// OnFrame implements websocket.EventHandler - called when backend sends a frame.
 func (t *Telephone) OnFrame(connectionID string, opcode websocket.Opcode, data []byte) {
 	t.sendWSFrame(connectionID, opcode, data)
 }
 
-// OnClose implements websocket.EventHandler - called when backend closes connection
+// OnClose implements websocket.EventHandler - called when backend closes connection.
 func (t *Telephone) OnClose(connectionID string, code int, reason string) {
 	t.sendWSClosed(connectionID, code, reason)
 }
 
-// OnError implements websocket.EventHandler - called when backend connection errors
-func (t *Telephone) OnError(connectionID string, reason string) {
+// OnError implements websocket.EventHandler - called when backend connection errors.
+func (t *Telephone) OnError(connectionID, reason string) {
 	t.sendWSErrorRaw(connectionID, reason)
 }
 
-// sendWSConnected sends ws_connected event to Plugboard
+// sendWSConnected sends ws_connected event to Plugboard.
 func (t *Telephone) sendWSConnected(connectionID, protocol string) {
 	topic := fmt.Sprintf("telephone:%s", t.claims.PathID)
 	ref := t.client.NextRef()
@@ -173,6 +176,7 @@ func (t *Telephone) sendWSConnected(connectionID, protocol string) {
 			"connection_id", connectionID,
 			"error", err,
 		)
+
 		return
 	}
 
@@ -182,7 +186,7 @@ func (t *Telephone) sendWSConnected(connectionID, protocol string) {
 	)
 }
 
-// sendWSFrame sends ws_frame event to Plugboard (backend -> client)
+// sendWSFrame sends ws_frame event to Plugboard (backend -> client).
 func (t *Telephone) sendWSFrame(connectionID string, opcode websocket.Opcode, data []byte) {
 	topic := fmt.Sprintf("telephone:%s", t.claims.PathID)
 	ref := t.client.NextRef()
@@ -200,11 +204,12 @@ func (t *Telephone) sendWSFrame(connectionID string, opcode websocket.Opcode, da
 			"connection_id", connectionID,
 			"error", err,
 		)
+
 		return
 	}
 }
 
-// sendWSClosed sends ws_closed event to Plugboard
+// sendWSClosed sends ws_closed event to Plugboard.
 func (t *Telephone) sendWSClosed(connectionID string, code int, reason string) {
 	topic := fmt.Sprintf("telephone:%s", t.claims.PathID)
 	ref := t.client.NextRef()
@@ -222,6 +227,7 @@ func (t *Telephone) sendWSClosed(connectionID string, code int, reason string) {
 			"connection_id", connectionID,
 			"error", err,
 		)
+
 		return
 	}
 
@@ -232,14 +238,13 @@ func (t *Telephone) sendWSClosed(connectionID string, code int, reason string) {
 	)
 }
 
-// sendWSError sends ws_error event to Plugboard with a typed error reason
+// sendWSError sends ws_error event to Plugboard with a typed error reason.
 func (t *Telephone) sendWSError(connectionID string, reason websocket.ErrorReason) {
 	t.sendWSErrorRaw(connectionID, reason.String())
 }
 
-// sendWSErrorRaw sends ws_error event to Plugboard with a raw string reason
-// This is used for error messages from the underlying WebSocket library
-func (t *Telephone) sendWSErrorRaw(connectionID string, reason string) {
+// sendWSErrorRaw sends ws_error event with a raw string reason.
+func (t *Telephone) sendWSErrorRaw(connectionID, reason string) {
 	topic := fmt.Sprintf("telephone:%s", t.claims.PathID)
 	ref := t.client.NextRef()
 
@@ -255,6 +260,7 @@ func (t *Telephone) sendWSErrorRaw(connectionID string, reason string) {
 			"connection_id", connectionID,
 			"error", err,
 		)
+
 		return
 	}
 
@@ -264,7 +270,7 @@ func (t *Telephone) sendWSErrorRaw(connectionID string, reason string) {
 	)
 }
 
-// buildWSBackendURL constructs the WebSocket URL for the backend
+// buildWSBackendURL constructs the WebSocket URL for the backend.
 func (t *Telephone) buildWSBackendURL(path, queryString string) string {
 	// Determine WebSocket scheme based on backend scheme
 	wsScheme := "ws"
@@ -291,11 +297,12 @@ func (t *Telephone) handleWSCheck(msg *channels.Message) {
 		return
 	}
 
-	path, _ := msg.Payload["path"].(string)
-	queryString, _ := msg.Payload["query_string"].(string)
+	path, _ := msg.Payload["path"].(string)                //nolint:errcheck // Optional field
+	queryString, _ := msg.Payload["query_string"].(string) //nolint:errcheck // Optional field
 
 	// Extract headers
 	headers := make(map[string]string)
+
 	if rawHeaders, ok := msg.Payload["headers"].(map[string]interface{}); ok {
 		for k, v := range rawHeaders {
 			if str, ok := v.(string); ok {
@@ -325,6 +332,7 @@ func (t *Telephone) handleWSCheck(msg *channels.Message) {
 			"error", err,
 		)
 		t.sendWSCheckResult(checkID, false, "", err.Error())
+
 		return
 	}
 
@@ -336,7 +344,7 @@ func (t *Telephone) handleWSCheck(msg *channels.Message) {
 	t.sendWSCheckResult(checkID, true, protocol, "")
 }
 
-// sendWSCheckResult sends ws_check_result event to Plugboard
+// sendWSCheckResult sends ws_check_result event to Plugboard.
 func (t *Telephone) sendWSCheckResult(checkID string, supported bool, protocol, reason string) {
 	topic := fmt.Sprintf("telephone:%s", t.claims.PathID)
 	ref := t.client.NextRef()
@@ -348,6 +356,7 @@ func (t *Telephone) sendWSCheckResult(checkID string, supported bool, protocol, 
 	if protocol != "" {
 		payload["protocol"] = protocol
 	}
+
 	if reason != "" {
 		payload["reason"] = reason
 	}
@@ -359,6 +368,7 @@ func (t *Telephone) sendWSCheckResult(checkID string, supported bool, protocol, 
 			"check_id", checkID,
 			"error", err,
 		)
+
 		return
 	}
 

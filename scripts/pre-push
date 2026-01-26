@@ -1,0 +1,41 @@
+#!/bin/bash
+# Pre-push hook: blocks direct pushes to main/master if checks fail
+# Install with: make install-hooks
+
+set -e
+
+# Ensure GOPATH/bin is in PATH for golangci-lint
+export PATH="$PATH:$(go env GOPATH)/bin"
+
+# Read stdin for refs being pushed
+while read local_ref local_sha remote_ref remote_sha; do
+    # Extract branch name
+    branch=$(echo "$remote_ref" | sed 's|refs/heads/||')
+    
+    # Only block pushes to main or master
+    if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+        echo "Pushing to protected branch '$branch' - running full checks..."
+        
+        # Run linter
+        echo "  -> Running golangci-lint..."
+        if ! golangci-lint run ./...; then
+            echo ""
+            echo "ERROR: Lint failed! Push to '$branch' blocked."
+            echo "   Fix lint issues and try again."
+            exit 1
+        fi
+        
+        # Run tests
+        echo "  -> Running tests with race detector..."
+        if ! go test -race ./...; then
+            echo ""
+            echo "ERROR: Tests failed! Push to '$branch' blocked."
+            echo "   Fix failing tests and try again."
+            exit 1
+        fi
+        
+        echo "All checks passed! Proceeding with push to '$branch'."
+    fi
+done
+
+exit 0

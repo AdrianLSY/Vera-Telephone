@@ -1,3 +1,4 @@
+// Package channels provides a Phoenix Channels WebSocket client implementation.
 package channels
 
 import (
@@ -7,11 +8,12 @@ import (
 	"testing"
 )
 
-// BenchmarkFromJSONSmall benchmarks parsing a small Phoenix message
+// BenchmarkFromJSONSmall benchmarks parsing a small Phoenix message.
 func BenchmarkFromJSONSmall(b *testing.B) {
 	data := []byte(`["1", "2", "telephone:path", "phx_join", {"key": "value"}]`)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_, err := FromJSON(data)
 		if err != nil {
@@ -20,7 +22,7 @@ func BenchmarkFromJSONSmall(b *testing.B) {
 	}
 }
 
-// BenchmarkFromJSONLarge benchmarks parsing a large Phoenix message with complex payload
+// BenchmarkFromJSONLarge benchmarks parsing a large Phoenix message with complex payload.
 func BenchmarkFromJSONLarge(b *testing.B) {
 	payload := map[string]interface{}{
 		"request_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -41,6 +43,7 @@ func BenchmarkFromJSONLarge(b *testing.B) {
 	data, _ := json.Marshal(arr)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_, err := FromJSON(data)
 		if err != nil {
@@ -49,11 +52,12 @@ func BenchmarkFromJSONLarge(b *testing.B) {
 	}
 }
 
-// BenchmarkFromJSONNullRefs benchmarks parsing messages with null refs (common case)
+// BenchmarkFromJSONNullRefs benchmarks parsing messages with null refs (common case).
 func BenchmarkFromJSONNullRefs(b *testing.B) {
 	data := []byte(`[null, null, "telephone:path", "proxy_req", {"request_id": "abc-123"}]`)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_, err := FromJSON(data)
 		if err != nil {
@@ -62,7 +66,7 @@ func BenchmarkFromJSONNullRefs(b *testing.B) {
 	}
 }
 
-// BenchmarkToJSONSmall benchmarks serializing a small Phoenix message
+// BenchmarkToJSONSmall benchmarks serializing a small Phoenix message.
 func BenchmarkToJSONSmall(b *testing.B) {
 	msg := &Message{
 		JoinRef: "1",
@@ -75,6 +79,7 @@ func BenchmarkToJSONSmall(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_, err := msg.ToJSON()
 		if err != nil {
@@ -83,7 +88,7 @@ func BenchmarkToJSONSmall(b *testing.B) {
 	}
 }
 
-// BenchmarkToJSONLarge benchmarks serializing a large Phoenix message
+// BenchmarkToJSONLarge benchmarks serializing a large Phoenix message.
 func BenchmarkToJSONLarge(b *testing.B) {
 	msg := &Message{
 		JoinRef: "join-ref-1",
@@ -104,6 +109,7 @@ func BenchmarkToJSONLarge(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_, err := msg.ToJSON()
 		if err != nil {
@@ -112,7 +118,7 @@ func BenchmarkToJSONLarge(b *testing.B) {
 	}
 }
 
-// BenchmarkMessageRoundTrip benchmarks full serialize/deserialize cycle
+// BenchmarkMessageRoundTrip benchmarks full serialize/deserialize cycle.
 func BenchmarkMessageRoundTrip(b *testing.B) {
 	msg := &Message{
 		JoinRef: "join-1",
@@ -131,11 +137,13 @@ func BenchmarkMessageRoundTrip(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		data, err := msg.ToJSON()
 		if err != nil {
 			b.Fatalf("Failed to serialize: %v", err)
 		}
+
 		_, err = FromJSON(data)
 		if err != nil {
 			b.Fatalf("Failed to parse: %v", err)
@@ -143,7 +151,7 @@ func BenchmarkMessageRoundTrip(b *testing.B) {
 	}
 }
 
-// BenchmarkNewMessage benchmarks message creation
+// BenchmarkNewMessage benchmarks message creation.
 func BenchmarkNewMessage(b *testing.B) {
 	topic := "telephone:test-path"
 	event := "proxy_req"
@@ -155,22 +163,24 @@ func BenchmarkNewMessage(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_ = NewMessage(topic, event, ref, payload)
 	}
 }
 
-// BenchmarkIsReply benchmarks reply checking
+// BenchmarkIsReply benchmarks reply checking.
 func BenchmarkIsReply(b *testing.B) {
 	msg := &Message{Event: "phx_reply"}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_ = msg.IsReply()
 	}
 }
 
-// BenchmarkIsError benchmarks error checking
+// BenchmarkIsError benchmarks error checking.
 func BenchmarkIsError(b *testing.B) {
 	msg := &Message{
 		Event: "phx_reply",
@@ -180,12 +190,13 @@ func BenchmarkIsError(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_ = msg.IsError()
 	}
 }
 
-// BenchmarkGetStatus benchmarks status extraction
+// BenchmarkGetStatus benchmarks status extraction.
 func BenchmarkGetStatus(b *testing.B) {
 	msg := &Message{
 		Payload: map[string]interface{}{
@@ -194,12 +205,13 @@ func BenchmarkGetStatus(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_ = msg.GetStatus()
 	}
 }
 
-// BenchmarkGetResponse benchmarks response extraction
+// BenchmarkGetResponse benchmarks response extraction.
 func BenchmarkGetResponse(b *testing.B) {
 	msg := &Message{
 		Payload: map[string]interface{}{
@@ -211,12 +223,13 @@ func BenchmarkGetResponse(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_ = msg.GetResponse()
 	}
 }
 
-// BenchmarkFromJSONParallel benchmarks concurrent message parsing
+// BenchmarkFromJSONParallel benchmarks concurrent message parsing.
 func BenchmarkFromJSONParallel(b *testing.B) {
 	data := []byte(`["1", "2", "telephone:path", "proxy_req", {"request_id": "abc-123", "method": "GET", "path": "/test"}]`)
 
@@ -231,7 +244,7 @@ func BenchmarkFromJSONParallel(b *testing.B) {
 	})
 }
 
-// BenchmarkToJSONParallel benchmarks concurrent message serialization
+// BenchmarkToJSONParallel benchmarks concurrent message serialization.
 func BenchmarkToJSONParallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -248,16 +261,18 @@ func BenchmarkToJSONParallel(b *testing.B) {
 					"body":        "response body",
 				},
 			}
+
 			_, err := msg.ToJSON()
 			if err != nil {
 				b.Fatalf("Failed to serialize: %v", err)
 			}
+
 			i++
 		}
 	})
 }
 
-// BenchmarkFromJSONVeryLarge benchmarks parsing a message with very large body
+// BenchmarkFromJSONVeryLarge benchmarks parsing a message with very large body.
 func BenchmarkFromJSONVeryLarge(b *testing.B) {
 	largeBody := strings.Repeat("x", 100*1024) // 100KB body
 	payload := map[string]interface{}{
@@ -271,6 +286,7 @@ func BenchmarkFromJSONVeryLarge(b *testing.B) {
 	data, _ := json.Marshal(arr)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_, err := FromJSON(data)
 		if err != nil {
@@ -279,7 +295,7 @@ func BenchmarkFromJSONVeryLarge(b *testing.B) {
 	}
 }
 
-// BenchmarkMessageTypeComparison benchmarks message type string comparison
+// BenchmarkMessageTypeComparison benchmarks message type string comparison.
 func BenchmarkMessageTypeComparison(b *testing.B) {
 	types := []MessageType{
 		MessageTypeJoin,
@@ -295,6 +311,7 @@ func BenchmarkMessageTypeComparison(b *testing.B) {
 	}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		mt := types[i%len(types)]
 		_ = mt == MessageTypeProxyRequest

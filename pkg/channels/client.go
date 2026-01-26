@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
 	"github.com/verastack/telephone/pkg/logger"
 )
 
-// Client represents a Phoenix Channels WebSocket client
+// Client represents a Phoenix Channels WebSocket client.
 type Client struct {
 	url      string
 	token    string // JWT token for authentication (sent via header, not URL)
@@ -46,15 +47,12 @@ type Client struct {
 	connected atomic.Bool
 }
 
-// MessageHandler is a function that handles incoming messages
+// MessageHandler is a function that handles incoming messages.
 type MessageHandler func(*Message)
 
-// NewClient creates a new Phoenix Channels client using V2 protocol (JSON array format)
-// The token is passed separately and appended as a query parameter during connection
-// (Phoenix Socket requires tokens in query params, not HTTP headers)
-// Protocol version (vsn=2.0.0) is sent as query parameter to select V2 serializer on server
-// Token leakage is mitigated via GetCleanURL() for logging, short-lived tokens, and TLS in production
-func NewClient(url string, token string, connectTimeout time.Duration) *Client {
+// NewClient creates a new Phoenix Channels client.
+// Token leakage is mitigated via GetCleanURL() for logging, short-lived tokens, and TLS in production.
+func NewClient(url, token string, connectTimeout time.Duration) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Client{
@@ -68,36 +66,37 @@ func NewClient(url string, token string, connectTimeout time.Duration) *Client {
 	}
 }
 
-// UpdateURL updates the WebSocket URL (useful for reconnection)
+// UpdateURL updates the WebSocket URL (useful for reconnection).
 func (c *Client) UpdateURL(newURL string) {
 	c.urlMu.Lock()
 	defer c.urlMu.Unlock()
 	c.url = newURL
 }
 
-// UpdateToken updates the authentication token (used after token refresh)
+// UpdateToken updates the authentication token (used after token refresh).
 func (c *Client) UpdateToken(newToken string) {
 	c.tokenMu.Lock()
 	defer c.tokenMu.Unlock()
 	c.token = newToken
 }
 
-// GetToken returns the current token
+// GetToken returns the current token.
 func (c *Client) GetToken() string {
 	c.tokenMu.RLock()
 	defer c.tokenMu.RUnlock()
+
 	return c.token
 }
 
-// GetURL returns the current WebSocket URL
+// GetURL returns the current WebSocket URL.
 func (c *Client) GetURL() string {
 	c.urlMu.RLock()
 	defer c.urlMu.RUnlock()
+
 	return c.url
 }
 
-// buildWSURL constructs the WebSocket URL with token as query parameter
-// Phoenix Socket requires tokens in query params (not HTTP headers) for authentication
+// Phoenix Socket requires tokens in query params (not HTTP headers) for authentication.
 func (c *Client) buildWSURL() (string, error) {
 	c.urlMu.RLock()
 	baseURL := c.url
@@ -130,21 +129,21 @@ func (c *Client) buildWSURL() (string, error) {
 	return parsedURL.String(), nil
 }
 
-// Connect establishes a WebSocket connection
+// Connect establishes a WebSocket connection.
 func (c *Client) Connect() error {
 	c.connLock.Lock()
 	defer c.connLock.Unlock()
 
 	// Clean up any stale connection first
 	if c.conn != nil {
-		c.conn.Close()
+		_ = c.conn.Close() //nolint:errcheck // Best-effort cleanup of stale connection
 		c.conn = nil
 	}
 
-	// Wait for previous readLoop to finish if it exists
+	// Wait for previous readLoop to finish if it exists.
+	// Note: We can't wait here because we hold the lock.
 	if c.readCancel != nil {
 		c.readCancel()
-		// Note: We can't wait here because we hold the lock
 	}
 
 	// Build WebSocket URL with token as query parameter
@@ -160,7 +159,11 @@ func (c *Client) Connect() error {
 	}
 
 	// Protocol version (vsn=2.0.0) is included in wsURL query params
-	conn, _, err := dialer.Dial(wsURL, nil)
+	conn, resp, err := dialer.Dial(wsURL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close() //nolint:errcheck // Best-effort cleanup of response body
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to connect to %s: %w", c.GetCleanURL(), err)
 	}
@@ -177,10 +180,11 @@ func (c *Client) Connect() error {
 
 	// Use clean URL for logging to avoid token leakage
 	logger.Info("Connected to WebSocket", "url", c.GetCleanURL())
+
 	return nil
 }
 
-// Disconnect closes the WebSocket connection
+// Disconnect closes the WebSocket connection.
 func (c *Client) Disconnect() error {
 	// Cancel readLoop context first
 	if c.readCancel != nil {
@@ -192,7 +196,7 @@ func (c *Client) Disconnect() error {
 	defer c.connLock.Unlock()
 
 	if c.conn != nil {
-		c.conn.Close()
+		_ = c.conn.Close() //nolint:errcheck // Best-effort cleanup during disconnect
 		c.conn = nil
 	}
 
@@ -204,20 +208,21 @@ func (c *Client) Disconnect() error {
 	return nil
 }
 
-// Close permanently shuts down the client (for final cleanup)
+// Close permanently shuts down the client (for final cleanup).
 func (c *Client) Close() error {
-	c.Disconnect()
+	_ = c.Disconnect() //nolint:errcheck // Best-effort disconnect during close
 	c.cancel()
 	c.wg.Wait()
+
 	return nil
 }
 
-// IsConnected returns true if the client is connected
+// IsConnected returns true if the client is connected.
 func (c *Client) IsConnected() bool {
 	return c.connected.Load()
 }
 
-// Send sends a message to the server
+// Send sends a message to the server.
 func (c *Client) Send(msg *Message) error {
 	c.connLock.Lock()
 	defer c.connLock.Unlock()
@@ -238,7 +243,7 @@ func (c *Client) Send(msg *Message) error {
 	return nil
 }
 
-// SendAndWait sends a message and waits for a reply with the same ref
+// SendAndWait sends a message and waits for a reply with the same ref.
 func (c *Client) SendAndWait(msg *Message, timeout time.Duration) (*Message, error) {
 	// Create channel for reply
 	replyChan := make(chan *Message, 1)
@@ -271,27 +276,27 @@ func (c *Client) SendAndWait(msg *Message, timeout time.Duration) (*Message, err
 	}
 }
 
-// On registers a message handler for a specific event
+// On registers a message handler for a specific event.
 func (c *Client) On(event string, handler MessageHandler) {
 	c.handlerLock.Lock()
 	defer c.handlerLock.Unlock()
 	c.handlers[event] = handler
 }
 
-// NextRef generates a unique reference ID
+// NextRef generates a unique reference ID.
 func (c *Client) NextRef() string {
 	ref := atomic.AddUint64(&c.refCounter, 1)
 	return fmt.Sprintf("%d", ref)
 }
 
-// readLoop continuously reads messages from the WebSocket
+// readLoop continuously reads messages from the WebSocket.
 func (c *Client) readLoop() {
 	defer c.wg.Done()
 	defer func() {
 		// Clean up connection when readLoop exits
 		c.connLock.Lock()
 		if c.conn != nil {
-			c.conn.Close()
+			_ = c.conn.Close() //nolint:errcheck // Best-effort cleanup on readLoop exit
 			c.conn = nil
 		}
 		c.connLock.Unlock()
@@ -300,18 +305,21 @@ func (c *Client) readLoop() {
 	}()
 
 	// Start a goroutine to monitor context cancellation and close connection
-	// This ensures ReadMessage() is unblocked when context is cancelled
+	// This ensures ReadMessage() is unblocked when context is canceled
 	// Use a WaitGroup to ensure this goroutine exits before readLoop returns
 	var contextWg sync.WaitGroup
+
 	contextDone := make(chan struct{})
+
 	contextWg.Add(1)
+
 	go func() {
 		defer contextWg.Done()
 		select {
 		case <-c.readCtx.Done():
-			logger.Debug("readLoop context cancelled, closing connection")
+			logger.Debug("readLoop context canceled, closing connection")
 		case <-c.ctx.Done():
-			logger.Debug("main context cancelled, closing connection")
+			logger.Debug("main context canceled, closing connection")
 		case <-contextDone:
 			return
 		}
@@ -319,10 +327,11 @@ func (c *Client) readLoop() {
 		// Close connection to unblock ReadMessage()
 		c.connLock.Lock()
 		if c.conn != nil {
-			c.conn.Close()
+			_ = c.conn.Close() //nolint:errcheck // Best-effort close to unblock ReadMessage
 		}
 		c.connLock.Unlock()
 	}()
+
 	defer func() {
 		close(contextDone)
 		contextWg.Wait() // Ensure context monitoring goroutine exits
@@ -343,15 +352,16 @@ func (c *Client) readLoop() {
 			// Check if we're shutting down gracefully
 			select {
 			case <-c.readCtx.Done():
-				logger.Debug("readLoop cancelled")
+				logger.Debug("readLoop canceled")
 				return
 			case <-c.ctx.Done():
-				logger.Debug("readLoop main context cancelled")
+				logger.Debug("readLoop main context canceled")
 				return
 			default:
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					logger.Error("WebSocket read error", "error", err)
 				}
+
 				return
 			}
 		}
@@ -368,7 +378,7 @@ func (c *Client) readLoop() {
 	}
 }
 
-// handleMessage routes a message to the appropriate handler
+// handleMessage routes a message to the appropriate handler.
 func (c *Client) handleMessage(msg *Message) {
 	// Check if this is a reply to a pending request
 	if msg.IsReply() && msg.Ref != "" {
@@ -382,6 +392,7 @@ func (c *Client) handleMessage(msg *Message) {
 			default:
 				logger.Warn("Reply channel full", "ref", msg.Ref)
 			}
+
 			return
 		}
 	}
@@ -398,8 +409,8 @@ func (c *Client) handleMessage(msg *Message) {
 	}
 }
 
-// GetCleanURL returns the WebSocket URL without query parameters
-// Used for logging to prevent token leakage (tokens are in query params per Phoenix Socket requirement)
+// GetCleanURL returns the WebSocket URL without query parameters.
+// Used for logging to prevent token leakage (tokens are in query params per Phoenix Socket requirement).
 func (c *Client) GetCleanURL() string {
 	c.urlMu.RLock()
 	defer c.urlMu.RUnlock()
@@ -411,5 +422,6 @@ func (c *Client) GetCleanURL() string {
 
 	// Remove query parameters for clean logging
 	parsedURL.RawQuery = ""
+
 	return parsedURL.String()
 }

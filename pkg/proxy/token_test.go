@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
 	"github.com/verastack/telephone/pkg/auth"
 	"github.com/verastack/telephone/pkg/channels"
 	"github.com/verastack/telephone/pkg/config"
 )
 
-// TestTokenRefreshSuccess tests successful token refresh
+// TestTokenRefreshSuccess tests successful token refresh.
 func TestTokenRefreshSuccess(t *testing.T) {
 	oldToken := createTestTokenT(t, time.Now().Add(1*time.Hour))
 	newToken := createTestTokenT(t, time.Now().Add(2*time.Hour))
@@ -58,7 +59,9 @@ func TestTokenRefreshSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
+
 	tel.tokenStore = tokenStore
+
 	defer tokenStore.Close()
 
 	// Refresh token
@@ -81,7 +84,7 @@ func TestTokenRefreshSuccess(t *testing.T) {
 	mockClient.mu.Unlock()
 }
 
-// TestTokenRefreshFailure tests token refresh failure handling
+// TestTokenRefreshFailure tests token refresh failure handling.
 func TestTokenRefreshFailure(t *testing.T) {
 	oldToken := createTestTokenT(t, time.Now().Add(1*time.Hour))
 	oldClaims, _ := auth.ParseJWTUnsafe(oldToken)
@@ -128,7 +131,7 @@ func TestTokenRefreshFailure(t *testing.T) {
 	}
 }
 
-// TestGetCurrentTokenThreadSafety tests concurrent access to getCurrentToken
+// TestGetCurrentTokenThreadSafety tests concurrent access to getCurrentToken.
 func TestGetCurrentTokenThreadSafety(t *testing.T) {
 	token := createTestTokenT(t, time.Now().Add(1*time.Hour))
 	claims, _ := auth.ParseJWTUnsafe(token)
@@ -155,14 +158,17 @@ func TestGetCurrentTokenThreadSafety(t *testing.T) {
 
 	// Concurrently read and write token
 	var wg sync.WaitGroup
+
 	numReaders := 10
 	numWriters := 5
 
 	// Start readers
 	for i := 0; i < numReaders; i++ {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			for j := 0; j < 100; j++ {
 				_ = tel.getCurrentToken()
 			}
@@ -172,8 +178,10 @@ func TestGetCurrentTokenThreadSafety(t *testing.T) {
 	// Start writers
 	for i := 0; i < numWriters; i++ {
 		wg.Add(1)
+
 		go func(index int) {
 			defer wg.Done()
+
 			for j := 0; j < 50; j++ {
 				newToken := createTestTokenT(t, time.Now().Add(time.Duration(index+j)*time.Hour))
 				newClaims, _ := auth.ParseJWTUnsafe(newToken)
@@ -192,7 +200,7 @@ func TestGetCurrentTokenThreadSafety(t *testing.T) {
 	}
 }
 
-// TestUpdateTokenThreadSafety tests concurrent calls to updateToken
+// TestUpdateTokenThreadSafety tests concurrent calls to updateToken.
 func TestUpdateTokenThreadSafety(t *testing.T) {
 	token := createTestTokenT(t, time.Now().Add(1*time.Hour))
 	claims, _ := auth.ParseJWTUnsafe(token)
@@ -219,12 +227,15 @@ func TestUpdateTokenThreadSafety(t *testing.T) {
 
 	// Concurrently update token
 	var wg sync.WaitGroup
+
 	numUpdaters := 10
 
 	for i := 0; i < numUpdaters; i++ {
 		wg.Add(1)
+
 		go func(index int) {
 			defer wg.Done()
+
 			for j := 0; j < 100; j++ {
 				newToken := createTestTokenT(t, time.Now().Add(time.Duration(index+j)*time.Hour))
 				newClaims, _ := auth.ParseJWTUnsafe(newToken)
@@ -251,7 +262,9 @@ func TestUpdateTokenThreadSafety(t *testing.T) {
 	}
 }
 
-// Helper function to create a test JWT token
+// createTestJWTToken creates a test JWT token for testing.
+//
+//nolint:unused // Helper function for future tests
 func createTestJWTToken(t *testing.T, expiry time.Time) string {
 	t.Helper()
 
@@ -264,6 +277,7 @@ func createTestJWTToken(t *testing.T, expiry time.Time) string {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
 	tokenString, err := token.SignedString([]byte("test-secret-key"))
 	if err != nil {
 		t.Fatalf("failed to generate test token: %v", err)

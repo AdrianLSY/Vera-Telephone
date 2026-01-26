@@ -1,3 +1,4 @@
+// Package auth provides JWT token parsing and validation functionality.
 package auth
 
 import (
@@ -10,7 +11,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// JWTClaims represents the decoded JWT claims from Plugboard
+// JWTClaims represents the decoded JWT claims from Plugboard.
 type JWTClaims struct {
 	Sub    string `json:"sub"`     // Subject (mount point ID)
 	JTI    string `json:"jti"`     // JWT ID
@@ -20,8 +21,8 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
-// ParseJWT decodes and verifies a JWT token
-func ParseJWT(tokenString string, secretKey string) (*JWTClaims, error) {
+// ParseJWT decodes and verifies a JWT token.
+func ParseJWT(tokenString, secretKey string) (*JWTClaims, error) {
 	if tokenString == "" {
 		return nil, fmt.Errorf("token is empty")
 	}
@@ -36,6 +37,7 @@ func ParseJWT(tokenString string, secretKey string) (*JWTClaims, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
+
 		return []byte(secretKey), nil
 	})
 
@@ -61,8 +63,8 @@ func ParseJWT(tokenString string, secretKey string) (*JWTClaims, error) {
 	return claims, nil
 }
 
-// ParseJWTUnsafe decodes a JWT token without verification
-// WARNING: Only use this for debugging or when signature verification is not required
+// ParseJWTUnsafe decodes a JWT without verifying its signature.
+// WARNING: Only use this for debugging or when signature verification is not required.
 func ParseJWTUnsafe(tokenString string) (*JWTClaims, error) {
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
@@ -83,34 +85,34 @@ func ParseJWTUnsafe(tokenString string) (*JWTClaims, error) {
 	return &claims, nil
 }
 
-// IsExpired checks if the token has expired
+// IsExpired checks if the token has expired.
 func (c *JWTClaims) IsExpired() bool {
 	return time.Now().Unix() > c.Exp
 }
 
-// ExpiresIn returns the duration until token expiration
+// ExpiresIn returns the duration until token expiration.
 func (c *JWTClaims) ExpiresIn() time.Duration {
 	expiresAt := time.Unix(c.Exp, 0)
 	return time.Until(expiresAt)
 }
 
-// IssuedAt returns the time when the token was issued
+// IssuedAt returns the time when the token was issued.
 func (c *JWTClaims) IssuedAt() time.Time {
 	return time.Unix(c.IAT, 0)
 }
 
-// ExpiresAt returns the expiration time
+// ExpiresAt returns the expiration time.
 func (c *JWTClaims) ExpiresAt() time.Time {
 	return time.Unix(c.Exp, 0)
 }
 
-// Lifespan returns the total duration of the token (from issued to expiration)
+// Lifespan returns the total duration of the token (from issued to expiration).
 func (c *JWTClaims) Lifespan() time.Duration {
 	return time.Unix(c.Exp, 0).Sub(time.Unix(c.IAT, 0))
 }
 
-// TimeUntilHalfLife returns the duration until the token reaches half of its lifespan
-// Returns 0 if the token has already passed half-life
+// TimeUntilHalfLife returns the duration until the token reaches half of its lifespan.
+// Returns 0 if the token has already passed half-life.
 func (c *JWTClaims) TimeUntilHalfLife() time.Duration {
 	lifespan := c.Lifespan()
 	halfLifeTime := time.Unix(c.IAT, 0).Add(lifespan / 2)
@@ -119,15 +121,16 @@ func (c *JWTClaims) TimeUntilHalfLife() time.Duration {
 	if duration < 0 {
 		return 0
 	}
+
 	return duration
 }
 
-// IsAtHalfLife returns true if the token has reached or passed half of its lifespan
+// IsAtHalfLife returns true if the token has reached or passed half of its lifespan.
 func (c *JWTClaims) IsAtHalfLife() bool {
 	return c.TimeUntilHalfLife() == 0
 }
 
-// Validate performs additional validation on the claims
+// Validate performs additional validation on the claims.
 func (c *JWTClaims) Validate() error {
 	// Check expiration
 	if c.IsExpired() {

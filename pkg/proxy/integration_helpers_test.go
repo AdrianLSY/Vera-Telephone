@@ -11,7 +11,7 @@ import (
 	"github.com/verastack/telephone/pkg/config"
 )
 
-// integrationTestSetup encapsulates common integration test setup
+// integrationTestSetup encapsulates common integration test setup.
 type integrationTestSetup struct {
 	Config  *config.Config
 	Tel     *Telephone
@@ -20,7 +20,7 @@ type integrationTestSetup struct {
 	ErrorCh chan error
 }
 
-// setupIntegrationTest performs common integration test setup
+// setupIntegrationTest performs common integration test setup.
 func setupIntegrationTest(t *testing.T, testName string) *integrationTestSetup {
 	t.Helper()
 
@@ -62,7 +62,7 @@ func setupIntegrationTest(t *testing.T, testName string) *integrationTestSetup {
 	return setup
 }
 
-// startTelephoneAsync starts Telephone in background and waits for startup
+// startTelephoneAsync starts Telephone in background and waits for startup.
 func (s *integrationTestSetup) startTelephoneAsync(t *testing.T, startupWait time.Duration) {
 	t.Helper()
 
@@ -77,44 +77,59 @@ func (s *integrationTestSetup) startTelephoneAsync(t *testing.T, startupWait tim
 	case err := <-s.ErrorCh:
 		t.Fatalf("Failed to start Telephone: %v", err)
 	case <-time.After(startupWait):
-		// Startup successful
+		t.Log("Startup successful")
 	}
 }
 
-// isPlugboardAvailable checks if Plugboard is reachable
+// isPlugboardAvailable checks if Plugboard is reachable.
 func isPlugboardAvailable(t *testing.T) bool {
+	t.Helper()
+
 	client := &http.Client{Timeout: 2 * time.Second}
+
 	resp, err := client.Get("http://localhost:4000")
 	if err != nil {
 		t.Logf("Plugboard not available: %v", err)
 		return false
 	}
+
 	defer resp.Body.Close()
+
 	return resp.StatusCode == 200
 }
 
-// parsePort converts port string to int
+// parsePort converts port string to int.
 func parsePort(portStr string) (int, bool) {
 	var port int
 	_, err := fmt.Sscanf(portStr, "%d", &port)
+
 	return port, err == nil
 }
 
-// loadTestConfig loads config with proper error handling
-func loadTestConfig(t testing.TB) (*config.Config, error) {
+// loadTestConfig loads config with proper error handling.
+//
+//nolint:thelper // tb.Helper() is called conditionally when tb is not nil
+func loadTestConfig(tb testing.TB) (*config.Config, error) {
+	if tb != nil {
+		tb.Helper()
+	}
+
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
-		if t != nil {
-			t.Logf("Config load error: %v", err)
+		if tb != nil {
+			tb.Logf("Config load error: %v", err)
 		}
+
 		return nil, fmt.Errorf("missing required environment variables (run from project root or set TELEPHONE_TOKEN and SECRET_KEY_BASE)")
 	}
+
 	return cfg, nil
 }
 
-// configureBackend updates config to point to test backend
+// configureBackend updates config to point to test backend.
 func configureBackend(cfg *config.Config, backendURL string) error {
 	backendHost := strings.TrimPrefix(backendURL, "http://")
+
 	parts := strings.Split(backendHost, ":")
 	if len(parts) != 2 {
 		return fmt.Errorf("invalid backend URL: %s", backendURL)
@@ -125,19 +140,21 @@ func configureBackend(cfg *config.Config, backendURL string) error {
 		cfg.BackendPort = port
 		return nil
 	}
+
 	return fmt.Errorf("failed to parse backend port: %s", parts[1])
 }
 
-// assertTokenValid checks that token is non-empty
+// assertTokenValid checks that token is non-empty.
 func assertTokenValid(t *testing.T, tel *Telephone) {
 	t.Helper()
+
 	token := tel.getCurrentToken()
 	if token == "" {
 		t.Error("Expected non-empty token")
 	}
 }
 
-// assertHeartbeatRecent checks that last heartbeat was recent
+// assertHeartbeatRecent checks that last heartbeat was recent.
 func assertHeartbeatRecent(t *testing.T, tel *Telephone, maxAge time.Duration) {
 	t.Helper()
 	tel.heartbeatLock.RLock()
@@ -155,7 +172,9 @@ func assertHeartbeatRecent(t *testing.T, tel *Telephone, maxAge time.Duration) {
 	}
 }
 
-// waitForCondition waits for a condition to be true or times out
+// waitForCondition waits for a condition to be true or times out.
+//
+//nolint:unused // Helper function for future integration tests
 func waitForCondition(t *testing.T, timeout time.Duration, condition func() bool, description string) {
 	t.Helper()
 
@@ -163,16 +182,16 @@ func waitForCondition(t *testing.T, timeout time.Duration, condition func() bool
 	defer ticker.Stop()
 
 	deadline := time.Now().Add(timeout)
+
 	for {
 		if condition() {
 			return
 		}
 
-		select {
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				t.Fatalf("Timeout waiting for: %s", description)
-			}
+		if time.Now().After(deadline) {
+			t.Fatalf("Timeout waiting for: %s", description)
 		}
+
+		<-ticker.C
 	}
 }

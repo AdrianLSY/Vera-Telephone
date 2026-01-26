@@ -10,7 +10,7 @@ import (
 	"github.com/verastack/telephone/pkg/logger"
 )
 
-// reconnect handles reconnection logic with exponential backoff
+// reconnect handles reconnection logic with exponential backoff.
 func (t *Telephone) reconnect() error {
 	// Prevent concurrent reconnection attempts
 	t.reconnecting.Lock()
@@ -18,6 +18,7 @@ func (t *Telephone) reconnect() error {
 		t.reconnecting.Unlock()
 		return ErrReconnectionInProgress
 	}
+
 	t.reconnectFlag = true
 	t.reconnecting.Unlock()
 
@@ -63,6 +64,7 @@ func (t *Telephone) reconnect() error {
 			case <-t.ctx.Done():
 				return ErrReconnectionCancelledDuringBackoff
 			}
+
 			continue
 		}
 
@@ -73,7 +75,7 @@ func (t *Telephone) reconnect() error {
 			logger.Error("Failed to rejoin channel", "error", err)
 
 			// Disconnect and retry
-			t.client.Disconnect()
+			_ = t.client.Disconnect() //nolint:errcheck // Best-effort disconnect before retry
 
 			// Wait before retrying
 			backoff = calculateBackoffWithJitter(attempt, t.config.InitialBackoff, t.config.MaxBackoff)
@@ -83,6 +85,7 @@ func (t *Telephone) reconnect() error {
 			case <-t.ctx.Done():
 				return ErrReconnectionCancelledDuringChannelJoin
 			}
+
 			continue
 		}
 
@@ -127,6 +130,7 @@ func (t *Telephone) attemptConnection() bool {
 
 		// Restore current token
 		t.client.UpdateToken(currentToken)
+
 		return false
 	}
 
@@ -142,7 +146,7 @@ func (t *Telephone) attemptConnection() bool {
 	return true
 }
 
-// monitorConnection monitors the WebSocket connection and reconnects if needed
+// monitorConnection monitors the WebSocket connection and reconnects if needed.
 func (t *Telephone) monitorConnection() {
 	defer t.wg.Done()
 
@@ -168,6 +172,7 @@ func (t *Telephone) monitorConnection() {
 					if errors.Is(err, ErrReconnectionInProgress) {
 						continue
 					}
+
 					logger.Error("Reconnection failed", "error", err)
 
 					// Continue monitoring - will keep retrying indefinitely
@@ -176,6 +181,7 @@ func (t *Telephone) monitorConnection() {
 
 				// Successfully reconnected
 				consecutiveFailures = 0
+
 				logger.Info("Connection restored successfully")
 			} else {
 				// Connection appears healthy, but check heartbeat timeout
@@ -192,37 +198,36 @@ func (t *Telephone) monitorConnection() {
 					)
 
 					// Force disconnect and reconnect
-					t.client.Disconnect()
+					_ = t.client.Disconnect() //nolint:errcheck // Best-effort disconnect on heartbeat timeout
 
 					if err := t.reconnect(); err != nil {
 						if errors.Is(err, ErrReconnectionInProgress) {
 							continue
 						}
+
 						logger.Error("Reconnection after heartbeat timeout failed", "error", err)
+
 						continue
 					}
 
 					logger.Info("Connection restored after heartbeat timeout")
-				} else {
+				} else if consecutiveFailures > 0 {
 					// Connection is healthy
-					if consecutiveFailures > 0 {
-						consecutiveFailures = 0
-					}
+					consecutiveFailures = 0
 				}
 			}
 		}
 	}
 }
 
-// calculateBackoffWithJitter calculates exponential backoff with jitter to prevent thundering herd
-// Uses cryptographically secure random for jitter to prevent timing attacks
-func calculateBackoffWithJitter(attempt int, initial, max time.Duration) time.Duration {
+// Uses cryptographically secure random for jitter to prevent timing attacks.
+func calculateBackoffWithJitter(attempt int, initial, maxBackoff time.Duration) time.Duration {
 	// Exponential backoff: initial * 2^attempt
 	backoff := time.Duration(float64(initial) * math.Pow(2, float64(attempt-1)))
 
 	// Cap at maximum
-	if backoff > max {
-		backoff = max
+	if backoff > maxBackoff {
+		backoff = maxBackoff
 	}
 
 	// Add jitter: ±25% randomization using cryptographically secure random
@@ -232,12 +237,13 @@ func calculateBackoffWithJitter(attempt int, initial, max time.Duration) time.Du
 	jitter := secureRandomDuration(jitterRange*2) - jitterRange
 	backoff += jitter
 
-	// Ensure we don't go below initial or above max
+	// Ensure we don't go below initial or above maxBackoff
 	if backoff < initial {
 		backoff = initial
 	}
-	if backoff > max {
-		backoff = max
+
+	if backoff > maxBackoff {
+		backoff = maxBackoff
 	}
 
 	return backoff

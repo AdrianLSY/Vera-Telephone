@@ -99,6 +99,40 @@ curl http://localhost:4000/call/YOUR_PATH/
 
 ---
 
+## Development Setup
+
+### Install Git Hooks (Recommended)
+
+After cloning the repository, install git hooks to catch issues before they hit CI:
+
+```bash
+make install-hooks
+```
+
+This installs:
+- **pre-commit hook** - Runs `fmt`, `vet`, and `lint` on every commit (~30s)
+- **pre-push hook** - Blocks direct pushes to `main` if lint or tests fail
+
+### Development Workflow
+
+```bash
+# Make your changes...
+
+# Option 1: Let hooks catch issues automatically
+git commit -m "your message"    # pre-commit runs fmt + vet + lint
+
+# Option 2: Run full checks manually
+make precommit                  # Runs fmt + vet + lint + test
+
+# Push to feature branch (no blocking)
+git push origin feature-branch
+
+# Push to main (blocked if lint/tests fail)
+git push origin main            # pre-push runs lint + test
+```
+
+---
+
 ## How It Works
 
 ```
@@ -306,16 +340,20 @@ See [`.env.example`](.env.example) for a complete example configuration with det
 ## Makefile Commands
 
 ```bash
-make help          # Show all available commands
-make build         # Build the binary
-make build-all     # Build for all platforms
-make run           # Build and run
-make test          # Run tests
-make lint          # Run linter
-make fmt           # Format code
-make clean         # Clean build artifacts
-make docker-build  # Build Docker image
-make docker-run    # Build and run in Docker
+make help            # Show all available commands
+make build           # Build the binary
+make build-all       # Build for all platforms
+make run             # Build and run
+make test            # Run tests
+make lint            # Run linter
+make lint-fix        # Run linter with auto-fix
+make fmt             # Format code
+make precommit       # Run full checks: fmt + vet + lint + test
+make install-hooks   # Install git pre-commit and pre-push hooks
+make uninstall-hooks # Remove git hooks
+make clean           # Clean build artifacts
+make docker-build    # Build Docker image
+make docker-run      # Build and run in Docker
 ```
 
 ---
