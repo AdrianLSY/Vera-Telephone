@@ -12,6 +12,7 @@ func TestLoadFromEnv(t *testing.T) {
 	originalEnv := os.Environ()
 	defer func() {
 		os.Clearenv()
+
 		for _, env := range originalEnv {
 			// Split only on first =
 			if idx := strings.IndexByte(env, '='); idx > 0 {
@@ -49,6 +50,7 @@ func TestLoadFromEnv(t *testing.T) {
 			},
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
+				t.Helper()
 				if cfg.ConnectTimeout != 10*time.Second {
 					t.Errorf("expected ConnectTimeout 10s, got %v", cfg.ConnectTimeout)
 				}
@@ -125,6 +127,7 @@ func TestLoadFromEnv(t *testing.T) {
 			},
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
+				t.Helper()
 				if cfg.BackendScheme != "https" {
 					t.Errorf("expected BackendScheme https, got %s", cfg.BackendScheme)
 				}
@@ -156,6 +159,7 @@ func TestLoadFromEnv(t *testing.T) {
 			},
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
+				t.Helper()
 				if cfg.MaxResponseSize != 52428800 {
 					t.Errorf("expected MaxResponseSize 52428800, got %d", cfg.MaxResponseSize)
 				}
@@ -184,6 +188,7 @@ func TestLoadFromEnv(t *testing.T) {
 			},
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
+				t.Helper()
 				if cfg.ChunkSize != 524288 {
 					t.Errorf("expected ChunkSize 524288, got %d", cfg.ChunkSize)
 				}
@@ -205,6 +210,7 @@ func TestLoadFromEnv(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
+
 				if tt.validate != nil {
 					tt.validate(t, cfg)
 				}
@@ -249,7 +255,7 @@ func TestBackendURL(t *testing.T) {
 	}
 }
 
-// TestLoadFromEnvMissingVariables tests individual missing required variables
+// TestLoadFromEnvMissingVariables tests individual missing required variables.
 func TestLoadFromEnvMissingVariables(t *testing.T) {
 	requiredVars := []string{
 		"PLUGBOARD_URL",
@@ -300,6 +306,7 @@ func TestLoadFromEnvMissingVariables(t *testing.T) {
 			if err == nil {
 				t.Errorf("Expected error when %s is missing", varName)
 			}
+
 			if err != nil && !strings.Contains(err.Error(), varName) {
 				t.Errorf("Expected error message to mention %s, got: %v", varName, err)
 			}
@@ -307,7 +314,7 @@ func TestLoadFromEnvMissingVariables(t *testing.T) {
 	}
 }
 
-// TestLoadFromEnvInvalidValues tests invalid values for various fields
+// TestLoadFromEnvInvalidValues tests invalid values for various fields.
 func TestLoadFromEnvInvalidValues(t *testing.T) {
 	setupCompleteEnv := func() {
 		os.Clearenv()
@@ -370,7 +377,7 @@ func TestLoadFromEnvInvalidValues(t *testing.T) {
 	}
 }
 
-// TestLoadFromEnvBoundaryValues tests boundary values
+// TestLoadFromEnvBoundaryValues tests boundary values.
 func TestLoadFromEnvBoundaryValues(t *testing.T) {
 	setupCompleteEnv := func() {
 		os.Clearenv()
@@ -405,6 +412,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			value:       "1",
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
+				t.Helper()
 				if cfg.BackendPort != 1 {
 					t.Errorf("Expected port 1, got %d", cfg.BackendPort)
 				}
@@ -416,6 +424,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			value:       "65535",
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
+				t.Helper()
 				if cfg.BackendPort != 65535 {
 					t.Errorf("Expected port 65535, got %d", cfg.BackendPort)
 				}
@@ -427,6 +436,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			value:       "-1",
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
+				t.Helper()
 				if cfg.MaxRetries != -1 {
 					t.Errorf("Expected MaxRetries -1, got %d", cfg.MaxRetries)
 				}
@@ -438,6 +448,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			value:       "0",
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
+				t.Helper()
 				if cfg.MaxRetries != 0 {
 					t.Errorf("Expected MaxRetries 0, got %d", cfg.MaxRetries)
 				}
@@ -449,6 +460,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			value:       "10737418240", // 10GB
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
+				t.Helper()
 				if cfg.MaxResponseSize != 10737418240 {
 					t.Errorf("Expected MaxResponseSize 10737418240, got %d", cfg.MaxResponseSize)
 				}
@@ -460,6 +472,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			value:       "1ms",
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
+				t.Helper()
 				if cfg.ConnectTimeout != 1*time.Millisecond {
 					t.Errorf("Expected ConnectTimeout 1ms, got %v", cfg.ConnectTimeout)
 				}
@@ -471,6 +484,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			value:       "1h",
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
+				t.Helper()
 				if cfg.RequestTimeout != 1*time.Hour {
 					t.Errorf("Expected RequestTimeout 1h, got %v", cfg.RequestTimeout)
 				}
@@ -492,6 +506,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 				if err != nil {
 					t.Errorf("Unexpected error for %s=%s: %v", tt.varName, tt.value, err)
 				}
+
 				if tt.validate != nil && cfg != nil {
 					tt.validate(t, cfg)
 				}
@@ -500,7 +515,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 	}
 }
 
-// TestLoadFromEnvEmptyValues tests empty string values
+// TestLoadFromEnvEmptyValues tests empty string values.
 func TestLoadFromEnvEmptyValues(t *testing.T) {
 	setupCompleteEnv := func() {
 		os.Clearenv()
@@ -543,7 +558,7 @@ func TestLoadFromEnvEmptyValues(t *testing.T) {
 	}
 }
 
-// TestBackendURLEdgeCases tests edge cases in BackendURL generation
+// TestBackendURLEdgeCases tests edge cases in BackendURL generation.
 func TestBackendURLEdgeCases(t *testing.T) {
 	tests := []struct {
 		name     string

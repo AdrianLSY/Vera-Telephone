@@ -14,11 +14,12 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
 	"github.com/verastack/telephone/pkg/auth"
 	"github.com/verastack/telephone/pkg/config"
 )
 
-// TestValidateProxyRequest tests the proxy request validation logic
+// TestValidateProxyRequest tests the proxy request validation logic.
 func TestValidateProxyRequest(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -198,7 +199,7 @@ func TestValidateProxyRequest(t *testing.T) {
 	}
 }
 
-// TestHTTPMethodValidation tests all HTTP method validations
+// TestHTTPMethodValidation tests all HTTP method validations.
 func TestHTTPMethodValidation(t *testing.T) {
 	validMethods := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 
@@ -235,10 +236,11 @@ func TestHTTPMethodValidation(t *testing.T) {
 	}
 }
 
-// TestForwardToBackend tests forwarding requests to backend (unit test with mock server)
+// TestForwardToBackend tests forwarding requests to backend (unit test with mock server).
 func TestForwardToBackend(t *testing.T) {
 	// Create a test backend server
 	backendCalls := 0
+
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		backendCalls++
 
@@ -280,23 +282,26 @@ func TestForwardToBackend(t *testing.T) {
 	if resp.RequestID != "550e8400-e29b-41d4-a716-446655440000" {
 		t.Errorf("expected request_id 550e8400-e29b-41d4-a716-446655440000, got %s", resp.RequestID)
 	}
+
 	if resp.Status != 200 {
 		t.Errorf("expected status 200, got %d", resp.Status)
 	}
+
 	if !strings.Contains(resp.Body, "success") {
 		t.Errorf("expected body to contain 'success', got %s", resp.Body)
 	}
+
 	if backendCalls != 1 {
 		t.Errorf("expected 1 backend call, got %d", backendCalls)
 	}
 }
 
-// TestConcurrentRequests tests handling multiple concurrent requests
+// TestConcurrentRequests tests handling multiple concurrent requests.
 func TestConcurrentRequests(t *testing.T) {
 	requestCount := 0
 	mu := sync.Mutex{}
 
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
 		requestCount++
 		mu.Unlock()
@@ -313,11 +318,14 @@ func TestConcurrentRequests(t *testing.T) {
 
 	// Send 10 concurrent requests
 	numRequests := 10
+
 	var wg sync.WaitGroup
+
 	errors := make(chan error, numRequests)
 
 	for i := 0; i < numRequests; i++ {
 		wg.Add(1)
+
 		go func(index int) {
 			defer wg.Done()
 
@@ -358,9 +366,9 @@ func TestConcurrentRequests(t *testing.T) {
 	}
 }
 
-// TestRequestTimeout tests that requests timeout correctly
+// TestRequestTimeout tests that requests timeout correctly.
 func TestRequestTimeout(t *testing.T) {
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Simulate slow backend
 		time.Sleep(2 * time.Second)
 		w.WriteHeader(http.StatusOK)
@@ -397,12 +405,12 @@ func TestRequestTimeout(t *testing.T) {
 	}
 }
 
-// TestChunkedResponse tests automatic chunking of large responses
+// TestChunkedResponse tests automatic chunking of large responses.
 func TestChunkedResponse(t *testing.T) {
 	// Create a large response (>1MB)
 	largeBody := strings.Repeat("x", 1*1024*1024+1000) // 1MB + 1000 bytes
 
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(largeBody))
@@ -449,7 +457,7 @@ func TestChunkedResponse(t *testing.T) {
 	}
 }
 
-// TestProxyResponseStructure tests ProxyResponse JSON marshaling
+// TestProxyResponseStructure tests ProxyResponse JSON marshaling.
 func TestProxyResponseStructure(t *testing.T) {
 	resp := &ProxyResponse{
 		RequestID: "550e8400-e29b-41d4-a716-446655440000",
@@ -486,7 +494,7 @@ func TestProxyResponseStructure(t *testing.T) {
 	}
 }
 
-// TestProxyResponseChunked tests chunked response structure
+// TestProxyResponseChunked tests chunked response structure.
 func TestProxyResponseChunked(t *testing.T) {
 	resp := &ProxyResponse{
 		RequestID: "550e8400-e29b-41d4-a716-446655440000",
@@ -525,7 +533,7 @@ func TestProxyResponseChunked(t *testing.T) {
 	}
 }
 
-// TestBackendErrorHandling tests error responses from backend
+// TestBackendErrorHandling tests error responses from backend.
 func TestBackendErrorHandling(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -561,7 +569,7 @@ func TestBackendErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.backendStatus)
 				w.Write([]byte(tt.backendBody))
 			}))
@@ -593,11 +601,13 @@ func TestBackendErrorHandling(t *testing.T) {
 	}
 }
 
-// TestQueryStringForwarding tests that query strings are properly forwarded
+// TestQueryStringForwarding tests that query strings are properly forwarded.
 func TestQueryStringForwarding(t *testing.T) {
 	receivedQuery := ""
+
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedQuery = r.URL.RawQuery
+
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	}))
@@ -624,7 +634,7 @@ func TestQueryStringForwarding(t *testing.T) {
 	}
 }
 
-// TestPostRequestWithBody tests POST request with body forwarding
+// TestPostRequestWithBody tests POST request with body forwarding.
 func TestPostRequestWithBody(t *testing.T) {
 	receivedBody := ""
 	receivedContentType := ""
@@ -675,7 +685,7 @@ func TestPostRequestWithBody(t *testing.T) {
 	}
 }
 
-// TestTokenManagement tests token getter and setter
+// TestTokenManagement tests token getter and setter.
 func TestTokenManagement(t *testing.T) {
 	tel := createMinimalTelephoneForTokenTest(t)
 
@@ -700,7 +710,7 @@ func TestTokenManagement(t *testing.T) {
 	}
 }
 
-// Helper function to create a test JWT token (testing.T version)
+// Helper function to create a test JWT token (testing.T version).
 func createTestTokenT(t *testing.T, expiry time.Time) string {
 	t.Helper()
 
@@ -713,6 +723,7 @@ func createTestTokenT(t *testing.T, expiry time.Time) string {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
 	tokenString, err := token.SignedString([]byte("test-secret-key"))
 	if err != nil {
 		t.Fatalf("failed to generate test token: %v", err)
@@ -721,7 +732,7 @@ func createTestTokenT(t *testing.T, expiry time.Time) string {
 	return tokenString
 }
 
-// Helper function to create a minimal Telephone instance for testing (testing.T version)
+// Helper function to create a minimal Telephone instance for testing (testing.T version).
 func createMinimalTelephoneT(t *testing.T, backendURL string) *Telephone {
 	t.Helper()
 
@@ -734,11 +745,12 @@ func createMinimalTelephoneT(t *testing.T, backendURL string) *Telephone {
 	return createMinimalTelephoneWithConfig(t, cfg, backendURL)
 }
 
-// Helper function to create a minimal Telephone instance with custom config
+// Helper function to create a minimal Telephone instance with custom config.
 func createMinimalTelephoneWithConfig(t *testing.T, cfg *config.Config, backendURL string) *Telephone {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
+
 	t.Cleanup(func() { cancel() })
 
 	// Parse test server URL - it's like "http://127.0.0.1:12345"
@@ -748,6 +760,7 @@ func createMinimalTelephoneWithConfig(t *testing.T, cfg *config.Config, backendU
 	// Split host and port
 	parts := strings.Split(hostPort, ":")
 	host := parts[0]
+
 	port := 0
 	if len(parts) > 1 {
 		port, _ = strconv.Atoi(parts[1])
@@ -775,7 +788,7 @@ func createMinimalTelephoneWithConfig(t *testing.T, cfg *config.Config, backendU
 	return tel
 }
 
-// Helper function to create minimal Telephone for token tests
+// Helper function to create minimal Telephone for token tests.
 func createMinimalTelephoneForTokenTest(t *testing.T) *Telephone {
 	t.Helper()
 
@@ -790,6 +803,7 @@ func createMinimalTelephoneForTokenTest(t *testing.T) *Telephone {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+
 	t.Cleanup(func() { cancel() })
 
 	tel := &Telephone{

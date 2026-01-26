@@ -23,8 +23,7 @@ func init() {
 // Note: Most integration tests are in integration_improved_test.go using
 // table-driven approach. This file contains unique tests not covered there.
 
-// TestIntegrationFullFlow tests the complete end-to-end flow
-// This is a comprehensive smoke test that verifies all components work together
+// This is a comprehensive smoke test that verifies all components work together.
 func TestIntegrationFullFlow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -73,6 +72,7 @@ func TestIntegrationFullFlow(t *testing.T) {
 
 	// Start in background
 	errChan := make(chan error, 1)
+
 	go func() {
 		if err := tel.Start(); err != nil {
 			errChan <- err
@@ -84,7 +84,7 @@ func TestIntegrationFullFlow(t *testing.T) {
 	case err := <-errChan:
 		t.Fatalf("Failed to start Telephone: %v", err)
 	case <-time.After(5 * time.Second):
-		// Startup successful
+		t.Log("Startup successful")
 	}
 
 	// Give it time to establish connection and join channel
@@ -102,8 +102,7 @@ func TestIntegrationFullFlow(t *testing.T) {
 	t.Log("Telephone stopped cleanly")
 }
 
-// TestIntegrationTokenPersistence tests that tokens are persisted to database
-// This verifies the token can be loaded from database on restart
+// This verifies the token can be loaded from database on restart.
 func TestIntegrationTokenPersistence(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -121,6 +120,7 @@ func TestIntegrationTokenPersistence(t *testing.T) {
 	if err != nil {
 		t.Skip("Skipping test: " + err.Error())
 	}
+
 	cfg.TokenDBPath = tmpDB
 
 	tel, err := New(cfg)
@@ -161,8 +161,7 @@ func TestIntegrationTokenPersistence(t *testing.T) {
 	}
 }
 
-// TestIntegrationReconnection tests automatic reconnection
-// This test requires manual Plugboard restart to trigger reconnection
+// This test requires manual Plugboard restart to trigger reconnection.
 func TestIntegrationReconnection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -177,7 +176,7 @@ func TestIntegrationReconnection(t *testing.T) {
 	t.Skip("Reconnection test requires manual Plugboard restart")
 }
 
-// BenchmarkIntegrationProxyRequest benchmarks a single proxy request through the full stack
+// BenchmarkIntegrationProxyRequest benchmarks a single proxy request through the full stack.
 func BenchmarkIntegrationProxyRequest(b *testing.B) {
 	if testing.Short() {
 		b.Skip("Skipping integration benchmark in short mode")
@@ -185,13 +184,15 @@ func BenchmarkIntegrationProxyRequest(b *testing.B) {
 
 	// Check Plugboard availability
 	client := &http.Client{Timeout: 2 * time.Second}
+
 	resp, err := client.Get("http://localhost:4000")
 	if err != nil || resp.StatusCode != 200 {
 		b.Skip("Plugboard not available")
 	}
+
 	resp.Body.Close()
 
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"benchmark":"true"}`))
 	}))
@@ -209,6 +210,7 @@ func BenchmarkIntegrationProxyRequest(b *testing.B) {
 	backendHost := strings.TrimPrefix(backend.URL, "http://")
 	parts := strings.Split(backendHost, ":")
 	cfg.BackendHost = "127.0.0.1"
+
 	if port, ok := parsePort(parts[1]); ok {
 		cfg.BackendPort = port
 	}
@@ -216,6 +218,7 @@ func BenchmarkIntegrationProxyRequest(b *testing.B) {
 	tel, _ := New(cfg)
 	go tel.Start()
 	time.Sleep(2 * time.Second)
+
 	defer tel.Stop()
 
 	b.ResetTimer()

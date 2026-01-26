@@ -3,16 +3,36 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE*"
+      - ".gitignore"
+      - ".editorconfig"
+      - ".opencode/**"
+      - ".claude/**"
+      - "docs/**"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE*"
+      - ".gitignore"
+      - ".editorconfig"
+      - ".opencode/**"
+      - ".claude/**"
+      - "docs/**"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   GO_VERSION: "1.24"
 
 jobs:
-  binary:
-    name: Build Binary
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
 
     steps:
@@ -25,14 +45,56 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc sqlite3 libsqlite3-dev
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Run tests with coverage
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.txt
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+          verbose: true
+
+  binary:
+    name: Build Binary
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
       - name: Build binary
-        env:
-          CGO_ENABLED: 1
         run: |
           mkdir -p bin
           go build -v -o bin/telephone ./cmd/telephone
@@ -45,6 +107,9 @@ jobs:
   docker:
     name: Build Docker
     runs-on: ubuntu-latest
+    needs: [lint, test]
+    permissions:
+      security-events: write
 
     steps:
       - name: Checkout code
@@ -59,5 +124,22 @@ jobs:
           context: .
           push: false
           tags: telephone:test
+          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Scan Docker image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: telephone:test
+          format: sarif
+          output: trivy-docker.sarif
+          severity: HIGH,CRITICAL
+          exit-code: 1
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-docker.sarif
+          category: trivy-docker

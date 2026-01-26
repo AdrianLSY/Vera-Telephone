@@ -6,6 +6,9 @@ This is a WebSocket-based reverse proxy sidecar written in Go.
 
 ## Project guidelines
 
+- Run `make install-hooks` after cloning to set up git pre-commit and pre-push hooks
+- Pre-commit hook runs: fmt -> vet -> lint (fast checks on every commit)
+- Pre-push hook blocks direct pushes to main/master if lint or tests fail
 - Use `make precommit` alias when you are done with all changes and fix any pending issues
 - Use the standard library `net/http` for HTTP client operations where possible
 - Use `github.com/gorilla/websocket` for WebSocket connections (already included)

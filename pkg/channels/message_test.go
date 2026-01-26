@@ -20,15 +20,19 @@ func TestNewMessage(t *testing.T) {
 	if msg.Topic != topic {
 		t.Errorf("expected topic %s, got %s", topic, msg.Topic)
 	}
+
 	if msg.Event != event {
 		t.Errorf("expected event %s, got %s", event, msg.Event)
 	}
+
 	if msg.Ref != ref {
 		t.Errorf("expected ref %s, got %s", ref, msg.Ref)
 	}
+
 	if msg.JoinRef != ref {
 		t.Errorf("expected joinRef %s, got %s", ref, msg.JoinRef)
 	}
+
 	if len(msg.Payload) != len(payload) {
 		t.Errorf("expected payload length %d, got %d", len(payload), len(msg.Payload))
 	}
@@ -52,6 +56,7 @@ func TestMessageToJSON(t *testing.T) {
 
 	// Parse back to verify format
 	var arr []interface{}
+
 	err = json.Unmarshal(data, &arr)
 	if err != nil {
 		t.Fatalf("failed to parse JSON: %v", err)
@@ -65,12 +70,15 @@ func TestMessageToJSON(t *testing.T) {
 	if arr[0].(string) != "1" {
 		t.Errorf("expected join_ref '1', got %v", arr[0])
 	}
+
 	if arr[1].(string) != "2" {
 		t.Errorf("expected ref '2', got %v", arr[1])
 	}
+
 	if arr[2].(string) != "telephone:path" {
 		t.Errorf("expected topic 'telephone:path', got %v", arr[2])
 	}
+
 	if arr[3].(string) != "phx_join" {
 		t.Errorf("expected event 'phx_join', got %v", arr[3])
 	}
@@ -91,6 +99,7 @@ func TestMessageToJSONWithNilRefs(t *testing.T) {
 	}
 
 	var arr []interface{}
+
 	err = json.Unmarshal(data, &arr)
 	if err != nil {
 		t.Fatalf("failed to parse JSON: %v", err)
@@ -113,6 +122,7 @@ func TestFromJSON(t *testing.T) {
 			jsonData:    `["1", "2", "telephone:path", "phx_join", {"key": "value"}]`,
 			expectError: false,
 			validate: func(t *testing.T, msg *Message) {
+				t.Helper()
 				if msg.JoinRef != "1" {
 					t.Errorf("expected JoinRef '1', got %s", msg.JoinRef)
 				}
@@ -135,6 +145,7 @@ func TestFromJSON(t *testing.T) {
 			jsonData:    `[null, null, "telephone:path", "proxy_req", {}]`,
 			expectError: false,
 			validate: func(t *testing.T, msg *Message) {
+				t.Helper()
 				if msg.JoinRef != "" {
 					t.Errorf("expected empty JoinRef, got %s", msg.JoinRef)
 				}
@@ -148,6 +159,7 @@ func TestFromJSON(t *testing.T) {
 			jsonData:    `["1", "2", "telephone:path", "phx_reply", {"status": "ok", "response": {}}]`,
 			expectError: false,
 			validate: func(t *testing.T, msg *Message) {
+				t.Helper()
 				if msg.Event != "phx_reply" {
 					t.Errorf("expected Event 'phx_reply', got %s", msg.Event)
 				}
@@ -198,6 +210,7 @@ func TestFromJSON(t *testing.T) {
 				if err == nil {
 					t.Errorf("expected error but got none")
 				}
+
 				if msg != nil {
 					t.Errorf("expected nil message but got %+v", msg)
 				}
@@ -205,6 +218,7 @@ func TestFromJSON(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
+
 				if msg == nil {
 					t.Errorf("expected message but got nil")
 				} else if tt.validate != nil {
@@ -246,6 +260,7 @@ func TestMessageIsReply(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			msg := &Message{Event: tt.event}
+
 			result := msg.IsReply()
 			if result != tt.expected {
 				t.Errorf("expected IsReply() = %v, got %v", tt.expected, result)
@@ -467,15 +482,19 @@ func TestMessageRoundTrip(t *testing.T) {
 	if parsed.JoinRef != original.JoinRef {
 		t.Errorf("JoinRef mismatch: got %s, want %s", parsed.JoinRef, original.JoinRef)
 	}
+
 	if parsed.Ref != original.Ref {
 		t.Errorf("Ref mismatch: got %s, want %s", parsed.Ref, original.Ref)
 	}
+
 	if parsed.Topic != original.Topic {
 		t.Errorf("Topic mismatch: got %s, want %s", parsed.Topic, original.Topic)
 	}
+
 	if parsed.Event != original.Event {
 		t.Errorf("Event mismatch: got %s, want %s", parsed.Event, original.Event)
 	}
+
 	if parsed.Payload["request_id"] != original.Payload["request_id"] {
 		t.Errorf("Payload mismatch")
 	}

@@ -5,9 +5,10 @@ import (
 	"fmt"
 )
 
-// MessageType represents Phoenix Channel message types
+// MessageType represents Phoenix Channel message types.
 type MessageType string
 
+// Phoenix Channel message type constants.
 const (
 	MessageTypeJoin           MessageType = "phx_join"
 	MessageTypeLeave          MessageType = "phx_leave"
@@ -18,7 +19,7 @@ const (
 	MessageTypeProxyResponse  MessageType = "proxy_res"
 	MessageTypeRefreshToken   MessageType = "refresh_token"
 
-	// WebSocket proxy message types
+	// MessageTypeWSConnect and related types are for WebSocket proxy operations.
 	MessageTypeWSConnect     MessageType = "ws_connect"      // Client wants to connect to backend WebSocket
 	MessageTypeWSFrame       MessageType = "ws_frame"        // WebSocket frame (bidirectional)
 	MessageTypeWSClose       MessageType = "ws_close"        // Client closed WebSocket connection
@@ -29,8 +30,8 @@ const (
 	MessageTypeWSCheckResult MessageType = "ws_check_result" // Result of WebSocket support check
 )
 
-// Message represents a Phoenix Channel message
-// Format: [join_ref, ref, topic, event, payload]
+// Message represents a Phoenix Channel message.
+// Format: [join_ref, ref, topic, event, payload].
 type Message struct {
 	JoinRef string                 `json:"join_ref"`
 	Ref     string                 `json:"ref"`
@@ -39,7 +40,7 @@ type Message struct {
 	Payload map[string]interface{} `json:"payload"`
 }
 
-// NewMessage creates a new Phoenix Channel message
+// NewMessage creates a new Phoenix Channel message.
 func NewMessage(topic, event, ref string, payload map[string]interface{}) *Message {
 	return &Message{
 		JoinRef: ref,
@@ -50,8 +51,8 @@ func NewMessage(topic, event, ref string, payload map[string]interface{}) *Messa
 	}
 }
 
-// ToJSON converts the message to JSON array format
-// Phoenix expects: [join_ref, ref, topic, event, payload]
+// ToJSON serializes the message to Phoenix Channel JSON array format.
+// Phoenix expects: [join_ref, ref, topic, event, payload].
 func (m *Message) ToJSON() ([]byte, error) {
 	arr := []interface{}{
 		m.JoinRef,
@@ -60,10 +61,11 @@ func (m *Message) ToJSON() ([]byte, error) {
 		m.Event,
 		m.Payload,
 	}
+
 	return json.Marshal(arr)
 }
 
-// FromJSON parses a Phoenix Channel message from JSON array
+// FromJSON parses a Phoenix Channel message from JSON array.
 func FromJSON(data []byte) (*Message, error) {
 	var arr []interface{}
 	if err := json.Unmarshal(data, &arr); err != nil {
@@ -95,6 +97,7 @@ func FromJSON(data []byte) (*Message, error) {
 	if !ok {
 		return nil, fmt.Errorf("topic must be a string")
 	}
+
 	msg.Topic = topic
 
 	// Event
@@ -102,6 +105,7 @@ func FromJSON(data []byte) (*Message, error) {
 	if !ok {
 		return nil, fmt.Errorf("event must be a string")
 	}
+
 	msg.Event = event
 
 	// Payload
@@ -109,17 +113,18 @@ func FromJSON(data []byte) (*Message, error) {
 	if !ok {
 		return nil, fmt.Errorf("payload must be an object")
 	}
+
 	msg.Payload = payload
 
 	return msg, nil
 }
 
-// IsReply checks if this is a reply message
+// IsReply checks if this is a reply message.
 func (m *Message) IsReply() bool {
 	return m.Event == "phx_reply"
 }
 
-// IsError checks if this is an error reply
+// IsError checks if this is an error reply.
 func (m *Message) IsError() bool {
 	if !m.IsReply() {
 		return false
@@ -132,18 +137,20 @@ func (m *Message) IsError() bool {
 	return false
 }
 
-// GetStatus returns the status from a reply message
+// GetStatus returns the status from a reply message.
 func (m *Message) GetStatus() string {
 	if status, ok := m.Payload["status"].(string); ok {
 		return status
 	}
+
 	return ""
 }
 
-// GetResponse returns the response payload from a reply message
+// GetResponse returns the response payload from a reply message.
 func (m *Message) GetResponse() map[string]interface{} {
 	if response, ok := m.Payload["response"].(map[string]interface{}); ok {
 		return response
 	}
+
 	return nil
 }

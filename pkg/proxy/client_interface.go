@@ -6,8 +6,7 @@ import (
 	"github.com/verastack/telephone/pkg/channels"
 )
 
-// ChannelsClient defines the interface for WebSocket client operations
-// This interface allows for dependency injection and easier testing
+// ChannelsClient allows for dependency injection and easier testing.
 type ChannelsClient interface {
 	// Connect establishes the WebSocket connection
 	Connect() error

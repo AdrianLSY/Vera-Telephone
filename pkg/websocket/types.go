@@ -1,8 +1,9 @@
 package websocket
 
-// Opcode represents WebSocket frame types
+// Opcode represents WebSocket frame types.
 type Opcode string
 
+// Opcode constants for WebSocket frame types.
 const (
 	OpcodeText   Opcode = "text"
 	OpcodeBinary Opcode = "binary"
@@ -10,7 +11,7 @@ const (
 	OpcodePong   Opcode = "pong"
 )
 
-// ConnectPayload represents the payload for ws_connect event from Plugboard
+// ConnectPayload represents the payload for ws_connect event from Plugboard.
 type ConnectPayload struct {
 	ConnectionID string            `json:"connection_id"`
 	Path         string            `json:"path"`
@@ -18,34 +19,34 @@ type ConnectPayload struct {
 	Headers      map[string]string `json:"headers"`
 }
 
-// FramePayload represents the payload for ws_frame event (bidirectional)
+// FramePayload represents the payload for ws_frame event (bidirectional).
 type FramePayload struct {
 	ConnectionID string `json:"connection_id"`
 	Opcode       Opcode `json:"opcode"`
 	Data         string `json:"data"` // Base64-encoded
 }
 
-// ClosePayload represents the payload for ws_close event from Plugboard
+// ClosePayload represents the payload for ws_close event from Plugboard.
 type ClosePayload struct {
 	ConnectionID string `json:"connection_id"`
 	Code         int    `json:"code"`
 	Reason       string `json:"reason"`
 }
 
-// ConnectedPayload represents the payload for ws_connected event to Plugboard
+// ConnectedPayload represents the payload for ws_connected event to Plugboard.
 type ConnectedPayload struct {
 	ConnectionID string `json:"connection_id"`
 	Protocol     string `json:"protocol,omitempty"` // Selected subprotocol (if any)
 }
 
-// ClosedPayload represents the payload for ws_closed event to Plugboard
+// ClosedPayload represents the payload for ws_closed event to Plugboard.
 type ClosedPayload struct {
 	ConnectionID string `json:"connection_id"`
 	Code         int    `json:"code"`
 	Reason       string `json:"reason"`
 }
 
-// ErrorPayload represents the payload for ws_error event to Plugboard
+// ErrorPayload represents the payload for ws_error event to Plugboard.
 type ErrorPayload struct {
 	ConnectionID string `json:"connection_id"`
 	Reason       string `json:"reason"`
@@ -60,24 +61,24 @@ type ErrorReason string
 // These are sent to Plugboard as part of the ws_error event payload
 // to indicate why a WebSocket operation failed.
 const (
-	// ErrConnectionRefused indicates the backend refused the WebSocket connection
+	// ErrConnectionRefused indicates the backend refused the WebSocket connection.
 	ErrConnectionRefused ErrorReason = "connection_refused"
-	// ErrConnectionTimeout indicates the connection to the backend timed out
+	// ErrConnectionTimeout indicates the connection to the backend timed out.
 	ErrConnectionTimeout ErrorReason = "connection_timeout"
-	// ErrInvalidUpgrade indicates the WebSocket upgrade handshake failed
+	// ErrInvalidUpgrade indicates the WebSocket upgrade handshake failed.
 	ErrInvalidUpgrade ErrorReason = "invalid_upgrade"
-	// ErrBackendError indicates a general error communicating with the backend
+	// ErrBackendError indicates a general error communicating with the backend.
 	ErrBackendError ErrorReason = "backend_error"
-	// ErrInvalidFrameData indicates the frame data could not be decoded
+	// ErrInvalidFrameData indicates the frame data could not be decoded.
 	ErrInvalidFrameData ErrorReason = "invalid_frame_data"
 )
 
-// String returns the string representation of the error reason
+// String returns the string representation of the error reason.
 func (e ErrorReason) String() string {
 	return string(e)
 }
 
-// CheckPayload represents the payload for ws_check event from Plugboard
+// CheckPayload represents the payload for ws_check event from Plugboard.
 type CheckPayload struct {
 	CheckID     string            `json:"check_id"`
 	Path        string            `json:"path"`
@@ -85,7 +86,7 @@ type CheckPayload struct {
 	Headers     map[string]string `json:"headers"`
 }
 
-// CheckResultPayload represents the payload for ws_check_result event to Plugboard
+// CheckResultPayload represents the payload for ws_check_result event to Plugboard.
 type CheckResultPayload struct {
 	CheckID   string `json:"check_id"`
 	Supported bool   `json:"supported"`
