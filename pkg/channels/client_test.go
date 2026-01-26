@@ -11,7 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// TestNewClient tests client creation
+// TestNewClient tests client creation.
 func TestNewClient(t *testing.T) {
 	url := "ws://localhost:4000/socket/websocket"
 	client := NewClient(url, "test-token", 10*time.Second)
@@ -33,7 +33,7 @@ func TestNewClient(t *testing.T) {
 	}
 }
 
-// TestUpdateURL tests URL updates
+// TestUpdateURL tests URL updates.
 func TestUpdateURL(t *testing.T) {
 	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
@@ -45,12 +45,12 @@ func TestUpdateURL(t *testing.T) {
 	}
 }
 
-// TestOnHandler tests event handler registration
+// TestOnHandler tests event handler registration.
 func TestOnHandler(t *testing.T) {
 	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
 	called := false
-	handler := func(msg *Message) {
+	handler := func(_ *Message) {
 		called = true
 	}
 
@@ -67,6 +67,7 @@ func TestOnHandler(t *testing.T) {
 
 	// Trigger handler directly
 	msg := &Message{Event: "test_event"}
+
 	client.handlerLock.RLock()
 	h := client.handlers["test_event"]
 	client.handlerLock.RUnlock()
@@ -77,7 +78,7 @@ func TestOnHandler(t *testing.T) {
 	}
 }
 
-// TestNextRef tests reference counter
+// TestNextRef tests reference counter.
 func TestNextRef(t *testing.T) {
 	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
@@ -93,7 +94,7 @@ func TestNextRef(t *testing.T) {
 	}
 }
 
-// TestIsConnected tests connection status
+// TestIsConnected tests connection status.
 func TestIsConnected(t *testing.T) {
 	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
@@ -109,7 +110,7 @@ func TestIsConnected(t *testing.T) {
 	}
 }
 
-// TestPushMessage tests message pushing
+// TestPushMessage tests message pushing.
 func TestPushMessage(t *testing.T) {
 	// Create mock WebSocket server
 	upgrader := websocket.Upgrader{}
@@ -138,10 +139,12 @@ func TestPushMessage(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
 	client := NewClient(wsURL, "test-token", 10*time.Second)
+
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
+
 	defer client.Close()
 
 	// Wait for connection to establish
@@ -168,7 +171,7 @@ func TestPushMessage(t *testing.T) {
 	}
 }
 
-// TestRequestResponse tests request/response pattern
+// TestRequestResponse tests request/response pattern.
 func TestRequestResponse(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 
@@ -201,10 +204,12 @@ func TestRequestResponse(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
 	client := NewClient(wsURL, "test-token", 10*time.Second)
+
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
+
 	defer client.Close()
 
 	time.Sleep(100 * time.Millisecond)
@@ -220,7 +225,7 @@ func TestRequestResponse(t *testing.T) {
 	}
 }
 
-// TestConcurrentPush tests concurrent message pushing
+// TestConcurrentPush tests concurrent message pushing.
 func TestConcurrentPush(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	messageCount := 0
@@ -239,6 +244,7 @@ func TestConcurrentPush(t *testing.T) {
 			if err != nil {
 				break
 			}
+
 			mu.Lock()
 			messageCount++
 			mu.Unlock()
@@ -249,20 +255,24 @@ func TestConcurrentPush(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
 	client := NewClient(wsURL, "test-token", 10*time.Second)
+
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
+
 	defer client.Close()
 
 	time.Sleep(100 * time.Millisecond)
 
 	// Send multiple messages concurrently
 	numMessages := 10
+
 	var wg sync.WaitGroup
 
 	for i := 0; i < numMessages; i++ {
 		wg.Add(1)
+
 		go func(index int) {
 			defer wg.Done()
 
@@ -286,7 +296,7 @@ func TestConcurrentPush(t *testing.T) {
 	}
 }
 
-// TestClose tests proper client cleanup
+// TestClose tests proper client cleanup.
 func TestClose(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 
@@ -305,6 +315,7 @@ func TestClose(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
 	client := NewClient(wsURL, "test-token", 10*time.Second)
+
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
@@ -333,7 +344,7 @@ func TestClose(t *testing.T) {
 	}
 }
 
-// TestConnectWithInvalidURL tests connection error handling
+// TestConnectWithInvalidURL tests connection error handling.
 func TestConnectWithInvalidURL(t *testing.T) {
 	client := NewClient("ws://invalid-host-that-does-not-exist:9999/socket", "test-token", 5*time.Second)
 
@@ -344,7 +355,7 @@ func TestConnectWithInvalidURL(t *testing.T) {
 	}
 }
 
-// TestPushWithoutConnection tests error handling when not connected
+// TestPushWithoutConnection tests error handling when not connected.
 func TestPushWithoutConnection(t *testing.T) {
 	client := NewClient("ws://localhost:9999/socket", "test-token", 10*time.Second)
 
@@ -356,7 +367,7 @@ func TestPushWithoutConnection(t *testing.T) {
 	}
 }
 
-// TestMessageHandler tests that registered handlers are called
+// TestMessageHandler tests that registered handlers are called.
 func TestMessageHandler(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	handlerCalled := make(chan bool, 1)
@@ -406,7 +417,7 @@ func TestMessageHandler(t *testing.T) {
 	}
 }
 
-// TestRefCounterIncrement tests that ref counter increments
+// TestRefCounterIncrement tests that ref counter increments.
 func TestRefCounterIncrement(t *testing.T) {
 	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
@@ -418,6 +429,7 @@ func TestRefCounterIncrement(t *testing.T) {
 		if refs[ref] {
 			t.Errorf("Duplicate ref generated: %s", ref)
 		}
+
 		refs[ref] = true
 	}
 
@@ -426,7 +438,7 @@ func TestRefCounterIncrement(t *testing.T) {
 	}
 }
 
-// TestContextCancellation tests that context cancellation stops client
+// TestContextCancellation tests that context cancellation stops client.
 func TestContextCancellation(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 
@@ -449,6 +461,7 @@ func TestContextCancellation(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
 	client := NewClient(wsURL, "test-token", 10*time.Second)
+
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
@@ -468,20 +481,20 @@ func TestContextCancellation(t *testing.T) {
 	client.Close()
 }
 
-// TestMultipleHandlers tests multiple handlers for the same event
+// TestMultipleHandlers tests multiple handlers for the same event.
 func TestMultipleHandlers(t *testing.T) {
 	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
 	count := 0
 	mu := sync.Mutex{}
 
-	handler1 := func(msg *Message) {
+	handler1 := func(_ *Message) {
 		mu.Lock()
 		count++
 		mu.Unlock()
 	}
 
-	handler2 := func(msg *Message) {
+	handler2 := func(_ *Message) {
 		mu.Lock()
 		count += 10
 		mu.Unlock()
@@ -510,7 +523,7 @@ func TestMultipleHandlers(t *testing.T) {
 	}
 }
 
-// TestBuildWSURL tests WebSocket URL building with token as query parameter
+// TestBuildWSURL tests WebSocket URL building with token as query parameter.
 func TestBuildWSURL(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -573,7 +586,7 @@ func TestBuildWSURL(t *testing.T) {
 	}
 }
 
-// TestGetCleanURL_RemovesToken tests that GetCleanURL strips the token from URLs
+// TestGetCleanURL_RemovesToken tests that GetCleanURL strips the token from URLs.
 func TestGetCleanURL_RemovesToken(t *testing.T) {
 	baseURL := "ws://localhost:4000/socket"
 	token := "sensitive-token-12345"
@@ -607,7 +620,7 @@ func TestGetCleanURL_RemovesToken(t *testing.T) {
 	}
 }
 
-// TestGetCleanURL_WithMultipleQueryParams tests GetCleanURL with multiple query params
+// TestGetCleanURL_WithMultipleQueryParams tests GetCleanURL with multiple query params.
 func TestGetCleanURL_WithMultipleQueryParams(t *testing.T) {
 	// URL with multiple query params including token
 	urlWithParams := "ws://localhost:4000/socket?foo=bar&token=secret&baz=qux"
@@ -626,7 +639,7 @@ func TestGetCleanURL_WithMultipleQueryParams(t *testing.T) {
 	}
 }
 
-// TestBuildWSURL_TokenUpdate tests that buildWSURL reflects token updates
+// TestBuildWSURL_TokenUpdate tests that buildWSURL reflects token updates.
 func TestBuildWSURL_TokenUpdate(t *testing.T) {
 	client := NewClient("ws://localhost:4000/socket", "initial-token", 10*time.Second)
 
@@ -658,7 +671,7 @@ func TestBuildWSURL_TokenUpdate(t *testing.T) {
 	}
 }
 
-// TestBuildWSURL_IncludesVSN tests that the vsn parameter is included in the URL
+// TestBuildWSURL_IncludesVSN tests that the vsn parameter is included in the URL.
 func TestBuildWSURL_IncludesVSN(t *testing.T) {
 	client := NewClient("ws://localhost:4000/socket", "test-token", 10*time.Second)
 
@@ -678,7 +691,7 @@ func TestBuildWSURL_IncludesVSN(t *testing.T) {
 	}
 }
 
-// TestBuildWSURL_VSN_WithoutToken tests that vsn is included even without token
+// TestBuildWSURL_VSN_WithoutToken tests that vsn is included even without token.
 func TestBuildWSURL_VSN_WithoutToken(t *testing.T) {
 	client := NewClient("ws://localhost:4000/socket", "", 10*time.Second)
 

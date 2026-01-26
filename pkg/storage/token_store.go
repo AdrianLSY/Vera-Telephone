@@ -8,16 +8,17 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/pbkdf2"
+	_ "modernc.org/sqlite" // SQLite driver
 )
 
-// TokenStore manages encrypted token persistence in SQLite
+// TokenStore manages encrypted token persistence in SQLite.
 type TokenStore struct {
 	db        *sql.DB
 	secretKey []byte
@@ -25,7 +26,7 @@ type TokenStore struct {
 	timeout   time.Duration // Database operation timeout
 }
 
-// TokenRecord represents a stored token
+// TokenRecord represents a stored token.
 type TokenRecord struct {
 	ID        int64
 	Token     string
@@ -33,8 +34,8 @@ type TokenRecord struct {
 	UpdatedAt time.Time
 }
 
-// NewTokenStore creates a new encrypted token store
-func NewTokenStore(dbPath string, secretKeyBase string, timeout time.Duration) (*TokenStore, error) {
+// NewTokenStore creates a new encrypted token store.
+func NewTokenStore(dbPath, secretKeyBase string, timeout time.Duration) (*TokenStore, error) {
 	if secretKeyBase == "" {
 		return nil, fmt.Errorf("secret key base cannot be empty")
 	}
@@ -46,7 +47,8 @@ func NewTokenStore(dbPath string, secretKeyBase string, timeout time.Duration) (
 	// Open SQLite database with busy timeout to handle concurrent access
 	// The busy_timeout pragma helps prevent "database is locked" errors
 	dbPathWithParams := fmt.Sprintf("%s?_busy_timeout=%d", dbPath, int(timeout.Milliseconds()))
-	db, err := sql.Open("sqlite3", dbPathWithParams)
+
+	db, err := sql.Open("sqlite", dbPathWithParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -58,7 +60,10 @@ func NewTokenStore(dbPath string, secretKeyBase string, timeout time.Duration) (
 
 	// Enable WAL mode for better concurrent read performance
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to enable WAL mode: %w (also failed to close db: %w)", err, closeErr)
+		}
+
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
@@ -80,14 +85,17 @@ func NewTokenStore(dbPath string, secretKeyBase string, timeout time.Duration) (
 
 	// Initialize database schema
 	if err := store.initSchema(); err != nil {
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to initialize schema: %w (also failed to close db: %w)", err, closeErr)
+		}
+
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
 	return store, nil
 }
 
-// initSchema creates the tokens table if it doesn't exist
+// initSchema creates the tokens table if it doesn't exist.
 func (ts *TokenStore) initSchema() error {
 	ctx, cancel := context.WithTimeout(context.Background(), ts.timeout)
 	defer cancel()
@@ -106,10 +114,11 @@ func (ts *TokenStore) initSchema() error {
 	`
 
 	_, err := ts.db.ExecContext(ctx, query)
+
 	return err
 }
 
-// encrypt encrypts the token using AES-256-GCM
+// encrypt encrypts the token using AES-256-GCM.
 func (ts *TokenStore) encrypt(plaintext string) (string, error) {
 	if plaintext == "" {
 		return "", fmt.Errorf("plaintext cannot be empty")
@@ -138,7 +147,7 @@ func (ts *TokenStore) encrypt(plaintext string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// decrypt decrypts the token using AES-256-GCM
+// decrypt decrypts the token using AES-256-GCM.
 func (ts *TokenStore) decrypt(encoded string) (string, error) {
 	if encoded == "" {
 		return "", fmt.Errorf("encoded text cannot be empty")
@@ -166,6 +175,7 @@ func (ts *TokenStore) decrypt(encoded string) (string, error) {
 	}
 
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to decrypt: %w", err)
@@ -174,7 +184,7 @@ func (ts *TokenStore) decrypt(encoded string) (string, error) {
 	return string(plaintext), nil
 }
 
-// SaveToken encrypts and saves a token to the database
+// SaveToken encrypts and saves a token to the database.
 func (ts *TokenStore) SaveToken(token string, expiresAt time.Time) error {
 	if token == "" {
 		return fmt.Errorf("token cannot be empty")
@@ -195,7 +205,13 @@ func (ts *TokenStore) SaveToken(token string, expiresAt time.Time) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+			// Log rollback error - we're already in error path or commit succeeded
+			_ = rbErr
+		}
+	}()
 
 	// Encrypt the token
 	encryptedToken, err := ts.encrypt(token)
@@ -222,7 +238,7 @@ func (ts *TokenStore) SaveToken(token string, expiresAt time.Time) error {
 	return nil
 }
 
-// LoadToken retrieves and decrypts the most recent valid token
+// LoadToken retrieves and decrypts the most recent valid token.
 func (ts *TokenStore) LoadToken() (string, time.Time, error) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -239,12 +255,14 @@ func (ts *TokenStore) LoadToken() (string, time.Time, error) {
 	`
 
 	var encryptedToken string
+
 	var expiresAt time.Time
 
 	err := ts.db.QueryRowContext(ctx, query, time.Now()).Scan(&encryptedToken, &expiresAt)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", time.Time{}, fmt.Errorf("no valid token found")
 	}
+
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("failed to query token: %w", err)
 	}
@@ -258,7 +276,7 @@ func (ts *TokenStore) LoadToken() (string, time.Time, error) {
 	return token, expiresAt, nil
 }
 
-// CleanupExpiredTokens removes expired tokens from the database
+// CleanupExpiredTokens removes expired tokens from the database.
 func (ts *TokenStore) CleanupExpiredTokens() error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -271,9 +289,16 @@ func (ts *TokenStore) CleanupExpiredTokens() error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+			// Log rollback error - we're already in error path or commit succeeded
+			_ = rbErr
+		}
+	}()
 
 	query := `DELETE FROM tokens WHERE expires_at < ?`
+
 	result, err := tx.ExecContext(ctx, query, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to cleanup expired tokens: %w", err)
@@ -284,9 +309,8 @@ func (ts *TokenStore) CleanupExpiredTokens() error {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Log how many were deleted
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected > 0 {
+	// Log how many were deleted (error is ignored as this is informational only)
+	if rowsAffected, err := result.RowsAffected(); err == nil && rowsAffected > 0 {
 		// This will be logged by the caller
 		_ = rowsAffected
 	}
@@ -294,19 +318,20 @@ func (ts *TokenStore) CleanupExpiredTokens() error {
 	return nil
 }
 
-// Close closes the database connection and securely zeros the secret key
+// Close closes the database connection and securely zeros the secret key.
 func (ts *TokenStore) Close() error {
 	// Zero out the secret key to prevent memory scanning attacks
 	for i := range ts.secretKey {
 		ts.secretKey[i] = 0
 	}
+
 	ts.secretKey = nil
 
 	return ts.db.Close()
 }
 
-// Stats returns statistics about stored tokens
-func (ts *TokenStore) Stats() (total int, valid int, expired int, err error) {
+// Stats returns statistics about stored tokens.
+func (ts *TokenStore) Stats() (total, valid, expired int, err error) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
@@ -326,5 +351,6 @@ func (ts *TokenStore) Stats() (total int, valid int, expired int, err error) {
 	}
 
 	expired = total - valid
+
 	return total, valid, expired, nil
 }

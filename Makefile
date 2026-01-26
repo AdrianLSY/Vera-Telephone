@@ -100,8 +100,29 @@ deps: ## Download dependencies
 
 verify: fmt vet lint test ## Run all verification checks
 
-precommit: fmt vet test ## Run pre-commit checks (fmt + vet + test)
+precommit: fmt vet lint test ## Run pre-commit checks (fmt + vet + lint + test)
 	@echo "Pre-commit checks passed!"
+
+install-hooks: ## Install git pre-commit and pre-push hooks
+	@echo "Installing git hooks..."
+	@HOOKS_DIR=$$(git rev-parse --git-dir)/hooks && \
+		mkdir -p "$$HOOKS_DIR" && \
+		cp scripts/pre-commit "$$HOOKS_DIR/pre-commit" && \
+		cp scripts/pre-push "$$HOOKS_DIR/pre-push" && \
+		chmod +x "$$HOOKS_DIR/pre-commit" "$$HOOKS_DIR/pre-push"
+	@echo "Git hooks installed!"
+	@echo "  - pre-commit: runs fmt + vet + lint"
+	@echo "  - pre-push: blocks pushes to main if lint/tests fail"
+
+uninstall-hooks: ## Remove git hooks
+	@echo "Removing git hooks..."
+	@HOOKS_DIR=$$(git rev-parse --git-dir)/hooks && \
+		rm -f "$$HOOKS_DIR/pre-commit" "$$HOOKS_DIR/pre-push"
+	@echo "Git hooks removed."
+
+lint-fix: ## Run linter with auto-fix
+	@echo "Running linter with auto-fix..."
+	golangci-lint run --fix ./...
 
 all: clean verify build ## Clean, verify, and build
 

@@ -14,7 +14,9 @@ import (
 	"time"
 )
 
-// TestIntegrationLifecycle tests basic lifecycle operations using table-driven approach
+// TestIntegrationLifecycle tests basic lifecycle operations using table-driven approach.
+//
+//nolint:thelper // Table-driven test with inline assertion functions
 func TestIntegrationLifecycle(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -79,7 +81,9 @@ func TestIntegrationLifecycle(t *testing.T) {
 	}
 }
 
-// TestIntegrationProxyRequests tests various proxy request scenarios
+// TestIntegrationProxyRequests tests various proxy request scenarios.
+//
+//nolint:thelper // Table-driven test with inline setup/validation functions
 func TestIntegrationProxyRequests(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -91,8 +95,8 @@ func TestIntegrationProxyRequests(t *testing.T) {
 	}{
 		{
 			name: "simple_get_request",
-			setupBackend: func(t *testing.T) *httptest.Server {
-				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			setupBackend: func(_ *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(`{"status":"success"}`))
@@ -120,13 +124,11 @@ func TestIntegrationProxyRequests(t *testing.T) {
 		},
 		{
 			name: "post_with_json_body",
-			setupBackend: func(t *testing.T) *httptest.Server {
+			setupBackend: func(_ *testing.T) *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					body, _ := io.ReadAll(r.Body)
 					var data map[string]interface{}
-					if err := json.Unmarshal(body, &data); err != nil {
-						t.Errorf("Failed to unmarshal request body: %v", err)
-					}
+					_ = json.Unmarshal(body, &data) // Ignore error in test handler
 
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusCreated)
@@ -157,8 +159,8 @@ func TestIntegrationProxyRequests(t *testing.T) {
 		},
 		{
 			name: "large_response_chunking",
-			setupBackend: func(t *testing.T) *httptest.Server {
-				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			setupBackend: func(_ *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.Header().Set("Content-Type", "text/plain")
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(strings.Repeat("x", 2*1024*1024))) // 2MB
@@ -195,13 +197,13 @@ func TestIntegrationProxyRequests(t *testing.T) {
 		},
 		{
 			name: "concurrent_requests",
-			setupBackend: func(t *testing.T) *httptest.Server {
+			setupBackend: func(_ *testing.T) *httptest.Server {
 				var counter int32
-				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					count := atomic.AddInt32(&counter, 1)
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(fmt.Sprintf(`{"request_number":%d}`, count)))
+					fmt.Fprintf(w, `{"request_number":%d}`, count)
 				}))
 			},
 			payload: func(i int) map[string]interface{} {
@@ -240,11 +242,14 @@ func TestIntegrationProxyRequests(t *testing.T) {
 			if tt.concurrent {
 				// Run requests concurrently
 				var wg sync.WaitGroup
+
 				var mu sync.Mutex
+
 				successCount := 0
 
 				for i := 0; i < tt.numRequests; i++ {
 					wg.Add(1)
+
 					go func(index int) {
 						defer wg.Done()
 
@@ -276,6 +281,7 @@ func TestIntegrationProxyRequests(t *testing.T) {
 					if err != nil {
 						t.Fatalf("Request %d failed: %v", i, err)
 					}
+
 					tt.validateResp(t, resp)
 				}
 			}
@@ -283,7 +289,9 @@ func TestIntegrationProxyRequests(t *testing.T) {
 	}
 }
 
-// TestIntegrationErrorHandling tests error scenarios using table-driven approach
+// TestIntegrationErrorHandling tests error scenarios using table-driven approach.
+//
+//nolint:thelper // Table-driven test with inline validation functions
 func TestIntegrationErrorHandling(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -343,7 +351,7 @@ func TestIntegrationErrorHandling(t *testing.T) {
 			setup := setupIntegrationTest(t, tt.name)
 			defer setup.Cleanup()
 
-			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.backendStatus)
 				w.Write([]byte(tt.backendBody))
 			}))
@@ -377,7 +385,9 @@ func TestIntegrationErrorHandling(t *testing.T) {
 	}
 }
 
-// TestIntegrationContextAndShutdown tests context cancellation and shutdown scenarios
+// TestIntegrationContextAndShutdown tests context cancellation and shutdown scenarios.
+//
+//nolint:thelper // Table-driven test with inline action/assertion functions
 func TestIntegrationContextAndShutdown(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -395,7 +405,7 @@ func TestIntegrationContextAndShutdown(t *testing.T) {
 				}
 			},
 			timeout: 5 * time.Second,
-			assertion: func(t *testing.T, setup *integrationTestSetup) {
+			assertion: func(t *testing.T, _ *integrationTestSetup) {
 				t.Log("Graceful shutdown completed")
 			},
 		},

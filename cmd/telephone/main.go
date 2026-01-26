@@ -1,3 +1,4 @@
+// Package main provides the telephone reverse proxy sidecar application.
 package main
 
 import (
@@ -7,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/joho/godotenv"
+
 	"github.com/verastack/telephone/pkg/config"
 	"github.com/verastack/telephone/pkg/logger"
 	"github.com/verastack/telephone/pkg/proxy"
@@ -30,6 +32,7 @@ func main() {
 	// Load .env file if it exists
 	if _, err := os.Stat(*envFile); err == nil {
 		logger.Info("Loading environment", "file", *envFile)
+
 		if err := godotenv.Load(*envFile); err != nil {
 			logger.Error("Failed to load .env file", "error", err)
 			os.Exit(1)

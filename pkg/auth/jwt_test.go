@@ -53,10 +53,12 @@ func TestParseJWT(t *testing.T) {
 				if err == nil {
 					t.Errorf("expected error but got none")
 				}
+
 				if tt.errorMsg != "" && err != nil && err.Error() != tt.errorMsg {
 					// Just check error exists for non-exact matches
 					t.Logf("got error: %v", err)
 				}
+
 				if claims != nil {
 					t.Errorf("expected nil claims but got %+v", claims)
 				}
@@ -64,6 +66,7 @@ func TestParseJWT(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
+
 				if claims == nil {
 					t.Errorf("expected claims but got nil")
 				}
@@ -89,6 +92,7 @@ func TestParseJWTWithValidToken(t *testing.T) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
 	tokenString, err := token.SignedString([]byte(secretKey))
 	if err != nil {
 		t.Fatalf("failed to create test token: %v", err)
@@ -104,12 +108,15 @@ func TestParseJWTWithValidToken(t *testing.T) {
 	if parsedClaims.PathID != pathID {
 		t.Errorf("expected PathID %s, got %s", pathID, parsedClaims.PathID)
 	}
+
 	if parsedClaims.Sub != subject {
 		t.Errorf("expected Sub %s, got %s", subject, parsedClaims.Sub)
 	}
+
 	if parsedClaims.JTI != jti {
 		t.Errorf("expected JTI %s, got %s", jti, parsedClaims.JTI)
 	}
+
 	if parsedClaims.IAT != now.Unix() {
 		t.Errorf("expected IAT %d, got %d", now.Unix(), parsedClaims.IAT)
 	}
@@ -129,6 +136,7 @@ func TestParseJWTWithExpiredToken(t *testing.T) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
 	tokenString, err := token.SignedString([]byte(secretKey))
 	if err != nil {
 		t.Fatalf("failed to create test token: %v", err)
@@ -155,6 +163,7 @@ func TestParseJWTWithWrongSignature(t *testing.T) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
 	tokenString, err := token.SignedString([]byte(correctSecret))
 	if err != nil {
 		t.Fatalf("failed to create test token: %v", err)
@@ -202,6 +211,7 @@ func TestParseJWTWithMissingClaims(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			token := jwt.NewWithClaims(jwt.SigningMethodHS256, tt.claims)
+
 			tokenString, err := token.SignedString([]byte(secretKey))
 			if err != nil {
 				t.Fatalf("failed to create test token: %v", err)
@@ -227,6 +237,7 @@ func TestParseJWTUnsafe(t *testing.T) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
 	tokenString, err := token.SignedString([]byte("secret"))
 	if err != nil {
 		t.Fatalf("failed to create test token: %v", err)
@@ -241,6 +252,7 @@ func TestParseJWTUnsafe(t *testing.T) {
 	if parsedClaims.PathID != "path-id" {
 		t.Errorf("expected PathID 'path-id', got %s", parsedClaims.PathID)
 	}
+
 	if parsedClaims.Sub != "subject" {
 		t.Errorf("expected Sub 'subject', got %s", parsedClaims.Sub)
 	}

@@ -35,8 +35,10 @@ go test -v ./pkg/proxy/... # Verbose output for proxy package
 
 # Code quality
 make lint                  # Run golangci-lint
+make lint-fix              # Run linter with auto-fix
 make fmt                   # Format code with go fmt
-make precommit             # Run fmt + lint + test (use before committing)
+make precommit             # Run fmt + vet + lint + test (use before committing)
+make install-hooks         # Install git hooks (recommended after cloning)
 
 # Dependencies
 go mod download            # Download dependencies

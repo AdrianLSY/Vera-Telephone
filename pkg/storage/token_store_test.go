@@ -52,6 +52,7 @@ func TestNewTokenStore(t *testing.T) {
 				if err == nil {
 					t.Errorf("expected error but got none")
 				}
+
 				if store != nil {
 					store.Close()
 					t.Errorf("expected nil store but got %+v", store)
@@ -60,6 +61,7 @@ func TestNewTokenStore(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
+
 				if store == nil {
 					t.Errorf("expected store but got nil")
 				} else {
@@ -274,6 +276,7 @@ func TestTokenStoreLoadExpiredToken(t *testing.T) {
 	// We need to bypass the validation in SaveToken
 	// So we'll use a future time for saving
 	futureExpiry := time.Now().Add(1 * time.Hour)
+
 	err = store.SaveToken(token, futureExpiry)
 	if err != nil {
 		t.Fatalf("failed to save token: %v", err)
@@ -283,6 +286,7 @@ func TestTokenStoreLoadExpiredToken(t *testing.T) {
 	store.mu.Lock()
 	_, err = store.db.Exec("UPDATE tokens SET expires_at = ?", expiresAt)
 	store.mu.Unlock()
+
 	if err != nil {
 		t.Fatalf("failed to update expiry: %v", err)
 	}
@@ -352,11 +356,13 @@ func TestTokenStoreCleanupExpiredTokens(t *testing.T) {
 
 	// Manually insert expired tokens to bypass SaveToken validation
 	store.mu.Lock()
+
 	encrypted1, err := store.encrypt(expiredToken1)
 	if err != nil {
 		store.mu.Unlock()
 		t.Fatalf("failed to encrypt expired token 1: %v", err)
 	}
+
 	encrypted2, err := store.encrypt(expiredToken2)
 	if err != nil {
 		store.mu.Unlock()
@@ -370,6 +376,7 @@ func TestTokenStoreCleanupExpiredTokens(t *testing.T) {
 		store.mu.Unlock()
 		t.Fatalf("failed to insert expired token 1: %v", err)
 	}
+
 	_, err = store.db.Exec("INSERT INTO tokens (encrypted_token, expires_at, updated_at) VALUES (?, ?, ?)",
 		encrypted2, now.Add(-1*time.Hour), now.Add(-1*time.Hour))
 	if err != nil {
@@ -380,6 +387,7 @@ func TestTokenStoreCleanupExpiredTokens(t *testing.T) {
 
 	// Now save a valid token (this will be the most recent)
 	validToken := "valid-token"
+
 	err = store.SaveToken(validToken, now.Add(1*time.Hour))
 	if err != nil {
 		t.Fatalf("failed to save valid token: %v", err)
@@ -457,6 +465,7 @@ func TestTokenStoreStats(t *testing.T) {
 
 	// Save a valid token
 	now := time.Now()
+
 	err = store.SaveToken("valid-token", now.Add(1*time.Hour))
 	if err != nil {
 		t.Fatalf("failed to save valid token: %v", err)
@@ -481,12 +490,14 @@ func TestTokenStoreConcurrentAccess(t *testing.T) {
 
 	// Test concurrent saves
 	done := make(chan bool)
+
 	for i := 0; i < 10; i++ {
 		go func(idx int) {
 			token := "token-" + string(rune('0'+idx))
-			err := store.SaveToken(token, time.Now().Add(1*time.Hour))
-			if err != nil {
-				t.Errorf("failed to save token %d: %v", idx, err)
+
+			saveErr := store.SaveToken(token, time.Now().Add(1*time.Hour))
+			if saveErr != nil {
+				t.Errorf("failed to save token %d: %v", idx, saveErr)
 			}
 			done <- true
 		}(i)

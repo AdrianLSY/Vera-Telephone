@@ -14,7 +14,7 @@ import (
 	"github.com/verastack/telephone/pkg/config"
 )
 
-// mockHealthClient implements ChannelsClient for health check testing
+// mockHealthClient implements ChannelsClient for health check testing.
 type mockHealthClient struct {
 	mu        sync.Mutex
 	connected bool
@@ -24,6 +24,7 @@ func (m *mockHealthClient) Connect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.connected = true
+
 	return nil
 }
 
@@ -31,6 +32,7 @@ func (m *mockHealthClient) Disconnect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.connected = false
+
 	return nil
 }
 
@@ -41,28 +43,29 @@ func (m *mockHealthClient) Close() error {
 func (m *mockHealthClient) IsConnected() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	return m.connected
 }
 
-func (m *mockHealthClient) Send(msg *channels.Message) error {
+func (m *mockHealthClient) Send(_ *channels.Message) error {
 	return nil
 }
 
-func (m *mockHealthClient) SendAndWait(msg *channels.Message, timeout time.Duration) (*channels.Message, error) {
+func (m *mockHealthClient) SendAndWait(_ *channels.Message, _ time.Duration) (*channels.Message, error) {
 	return nil, nil
 }
 
-func (m *mockHealthClient) On(event string, handler channels.MessageHandler) {}
+func (m *mockHealthClient) On(_ string, _ channels.MessageHandler) {}
 
 func (m *mockHealthClient) NextRef() string {
 	return "1"
 }
 
-func (m *mockHealthClient) UpdateURL(url string) {}
+func (m *mockHealthClient) UpdateURL(_ string) {}
 
-func (m *mockHealthClient) UpdateToken(token string) {}
+func (m *mockHealthClient) UpdateToken(_ string) {}
 
-// createTestTelephoneForHealth creates a minimal Telephone for health testing
+// createTestTelephoneForHealth creates a minimal Telephone for health testing.
 func createTestTelephoneForHealth(t *testing.T, connected bool, tokenExpiry time.Duration) *Telephone {
 	t.Helper()
 
@@ -70,6 +73,7 @@ func createTestTelephoneForHealth(t *testing.T, connected bool, tokenExpiry time
 	claims, _ := auth.ParseJWTUnsafe(token)
 
 	ctx, cancel := context.WithCancel(context.Background())
+
 	t.Cleanup(func() { cancel() })
 
 	mockClient := &mockHealthClient{connected: connected}
@@ -123,7 +127,7 @@ func TestHealthEndpoint(t *testing.T) {
 			tel := createTestTelephoneForHealth(t, tt.connected, tt.tokenExpiry)
 			hs := newHealthServer(tel, 0)
 
-			req := httptest.NewRequest(http.MethodGet, "/health", nil)
+			req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 			w := httptest.NewRecorder()
 
 			hs.handleHealth(w, req)
@@ -180,7 +184,7 @@ func TestReadyEndpoint(t *testing.T) {
 			tel := createTestTelephoneForHealth(t, tt.connected, tt.tokenExpiry)
 			hs := newHealthServer(tel, 0)
 
-			req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+			req := httptest.NewRequest(http.MethodGet, "/ready", http.NoBody)
 			w := httptest.NewRecorder()
 
 			hs.handleReady(w, req)
@@ -196,7 +200,7 @@ func TestLiveEndpoint(t *testing.T) {
 	tel := createTestTelephoneForHealth(t, false, 1*time.Hour)
 	hs := newHealthServer(tel, 0)
 
-	req := httptest.NewRequest(http.MethodGet, "/live", nil)
+	req := httptest.NewRequest(http.MethodGet, "/live", http.NoBody)
 	w := httptest.NewRecorder()
 
 	hs.handleLive(w, req)
@@ -219,7 +223,7 @@ func TestHealthEndpointMethodNotAllowed(t *testing.T) {
 
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/health", nil)
+			req := httptest.NewRequest(method, "/health", http.NoBody)
 			w := httptest.NewRecorder()
 
 			hs.handleHealth(w, req)
@@ -241,7 +245,7 @@ func TestHealthStatusFields(t *testing.T) {
 
 	hs := newHealthServer(tel, 0)
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	w := httptest.NewRecorder()
 
 	hs.handleHealth(w, req)
@@ -312,10 +316,9 @@ func TestHealthServerStartStop(t *testing.T) {
 
 	// Test that we can't stop a server that hasn't started
 	ctx := context.Background()
+	// Note: We don't test actual Start() here because it binds to a port
+	// and could cause issues in CI. The handler tests above cover the logic.
 	if err := hs.Stop(ctx); err != nil {
 		t.Errorf("Stop on non-running server should not error: %v", err)
 	}
-
-	// Note: We don't test actual Start() here because it binds to a port
-	// and could cause issues in CI. The handler tests above cover the logic.
 }

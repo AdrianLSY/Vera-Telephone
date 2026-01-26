@@ -1,3 +1,4 @@
+// Package config provides configuration loading from environment variables.
 package config
 
 import (
@@ -7,7 +8,74 @@ import (
 	"time"
 )
 
-// Config holds the application configuration
+// parseDuration parses a duration from an environment variable.
+// Returns an error if the variable is not set or has an invalid format.
+func parseDuration(envVar string) (time.Duration, error) {
+	value := os.Getenv(envVar)
+	if value == "" {
+		return 0, fmt.Errorf("%s environment variable is required", envVar)
+	}
+
+	duration, parseErr := time.ParseDuration(value)
+	if parseErr != nil {
+		return 0, fmt.Errorf("invalid %s: %w", envVar, parseErr)
+	}
+
+	return duration, nil
+}
+
+// parseInt parses an integer from an environment variable.
+// Returns an error if the variable is not set or has an invalid format.
+func parseInt(envVar string) (int, error) {
+	value := os.Getenv(envVar)
+	if value == "" {
+		return 0, fmt.Errorf("%s environment variable is required", envVar)
+	}
+
+	intVal, parseErr := strconv.Atoi(value)
+	if parseErr != nil {
+		return 0, fmt.Errorf("invalid %s: %w", envVar, parseErr)
+	}
+
+	return intVal, nil
+}
+
+// parsePositiveInt parses a positive integer from an environment variable.
+// Returns an error if the variable is not set, has an invalid format, or is not positive.
+func parsePositiveInt(envVar string) (int, error) {
+	value, parseErr := parseInt(envVar)
+	if parseErr != nil {
+		return 0, parseErr
+	}
+
+	if value <= 0 {
+		return 0, fmt.Errorf("%s must be positive", envVar)
+	}
+
+	return value, nil
+}
+
+// parsePositiveInt64 parses a positive int64 from an environment variable.
+// Returns an error if the variable is not set, has an invalid format, or is not positive.
+func parsePositiveInt64(envVar string) (int64, error) {
+	value := os.Getenv(envVar)
+	if value == "" {
+		return 0, fmt.Errorf("%s environment variable is required", envVar)
+	}
+
+	intVal, parseErr := strconv.ParseInt(value, 10, 64)
+	if parseErr != nil {
+		return 0, fmt.Errorf("invalid %s: %w", envVar, parseErr)
+	}
+
+	if intVal <= 0 {
+		return 0, fmt.Errorf("%s must be positive", envVar)
+	}
+
+	return intVal, nil
+}
+
+// Config holds the application configuration.
 type Config struct {
 	// Plugboard connection settings
 	PlugboardURL string
@@ -42,17 +110,19 @@ type Config struct {
 	HealthCheckPort int // Port for health check HTTP server (0 = disabled)
 }
 
-// LoadFromEnv loads configuration from environment variables
-// All configuration must be explicitly set - no defaults are used
+// LoadFromEnv loads configuration from environment variables.
+// All configuration must be explicitly set - no defaults are used.
+//
+//nolint:gocyclo // Configuration loading is inherently sequential with many required fields
 func LoadFromEnv() (*Config, error) {
 	cfg := &Config{}
 
-	// Optional: Token (can be loaded from database if not provided)
+	// Optional: Token (can be loaded from database if not provided).
+	// If still empty, proxy.New() will try to load from database.
 	cfg.Token = os.Getenv("TELEPHONE_TOKEN")
 	if cfg.Token == "" {
 		// Try reading from .env file format
 		cfg.Token = os.Getenv("token")
-		// Note: If still empty, proxy.New() will try to load from database
 	}
 
 	// Required: Plugboard URL
@@ -68,14 +138,11 @@ func LoadFromEnv() (*Config, error) {
 	}
 
 	// Required: Backend Port
-	portStr := os.Getenv("BACKEND_PORT")
-	if portStr == "" {
-		return nil, fmt.Errorf("BACKEND_PORT environment variable is required")
-	}
-	port, err := strconv.Atoi(portStr)
+	port, err := parseInt("BACKEND_PORT")
 	if err != nil {
-		return nil, fmt.Errorf("invalid BACKEND_PORT: %w", err)
+		return nil, err
 	}
+
 	cfg.BackendPort = port
 
 	// Required: Backend Scheme
@@ -83,84 +150,51 @@ func LoadFromEnv() (*Config, error) {
 	if cfg.BackendScheme == "" {
 		return nil, fmt.Errorf("BACKEND_SCHEME environment variable is required")
 	}
+
 	if cfg.BackendScheme != "http" && cfg.BackendScheme != "https" {
 		return nil, fmt.Errorf("BACKEND_SCHEME must be 'http' or 'https', got: %s", cfg.BackendScheme)
 	}
 
-	if timeoutStr := os.Getenv("CONNECT_TIMEOUT"); timeoutStr != "" {
-		timeout, err := time.ParseDuration(timeoutStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid CONNECT_TIMEOUT: %w", err)
-		}
-		cfg.ConnectTimeout = timeout
-	} else {
-		return nil, fmt.Errorf("CONNECT_TIMEOUT environment variable is required")
-	}
-
-	if timeoutStr := os.Getenv("REQUEST_TIMEOUT"); timeoutStr != "" {
-		timeout, err := time.ParseDuration(timeoutStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid REQUEST_TIMEOUT: %w", err)
-		}
-		cfg.RequestTimeout = timeout
-	} else {
-		return nil, fmt.Errorf("REQUEST_TIMEOUT environment variable is required")
-	}
-
-	if intervalStr := os.Getenv("HEARTBEAT_INTERVAL"); intervalStr != "" {
-		interval, err := time.ParseDuration(intervalStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid HEARTBEAT_INTERVAL: %w", err)
-		}
-		cfg.HeartbeatInterval = interval
-	} else {
-		return nil, fmt.Errorf("HEARTBEAT_INTERVAL environment variable is required")
-	}
-
-	if intervalStr := os.Getenv("CONNECTION_MONITOR_INTERVAL"); intervalStr != "" {
-		interval, err := time.ParseDuration(intervalStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid CONNECTION_MONITOR_INTERVAL: %w", err)
-		}
-		cfg.ConnectionMonitorInterval = interval
-	} else {
-		return nil, fmt.Errorf("CONNECTION_MONITOR_INTERVAL environment variable is required")
-	}
-
-	if backoffStr := os.Getenv("INITIAL_BACKOFF"); backoffStr != "" {
-		backoff, err := time.ParseDuration(backoffStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid INITIAL_BACKOFF: %w", err)
-		}
-		cfg.InitialBackoff = backoff
-	} else {
-		return nil, fmt.Errorf("INITIAL_BACKOFF environment variable is required")
-	}
-
-	if backoffStr := os.Getenv("MAX_BACKOFF"); backoffStr != "" {
-		backoff, err := time.ParseDuration(backoffStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid MAX_BACKOFF: %w", err)
-		}
-		cfg.MaxBackoff = backoff
-	} else {
-		return nil, fmt.Errorf("MAX_BACKOFF environment variable is required")
-	}
-
-	// Required: Max Retries
-	retriesStr := os.Getenv("MAX_RETRIES")
-	if retriesStr == "" {
-		return nil, fmt.Errorf("MAX_RETRIES environment variable is required")
-	}
-	retries, err := strconv.Atoi(retriesStr)
+	// Required: Timeouts and intervals
+	cfg.ConnectTimeout, err = parseDuration("CONNECT_TIMEOUT")
 	if err != nil {
-		return nil, fmt.Errorf("invalid MAX_RETRIES: %w", err)
+		return nil, err
 	}
-	cfg.MaxRetries = retries
 
-	if secretKey := os.Getenv("SECRET_KEY_BASE"); secretKey != "" {
-		cfg.SecretKeyBase = secretKey
-	} else {
+	cfg.RequestTimeout, err = parseDuration("REQUEST_TIMEOUT")
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.HeartbeatInterval, err = parseDuration("HEARTBEAT_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.ConnectionMonitorInterval, err = parseDuration("CONNECTION_MONITOR_INTERVAL")
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.InitialBackoff, err = parseDuration("INITIAL_BACKOFF")
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.MaxBackoff, err = parseDuration("MAX_BACKOFF")
+	if err != nil {
+		return nil, err
+	}
+
+	// Required: Max Retries (can be negative for infinite retries)
+	cfg.MaxRetries, err = parseInt("MAX_RETRIES")
+	if err != nil {
+		return nil, err
+	}
+
+	// Required: Secret key base
+	cfg.SecretKeyBase = os.Getenv("SECRET_KEY_BASE")
+	if cfg.SecretKeyBase == "" {
 		return nil, fmt.Errorf("SECRET_KEY_BASE environment variable is required for token encryption")
 	}
 
@@ -170,61 +204,42 @@ func LoadFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("TOKEN_DB_PATH environment variable is required")
 	}
 
-	// Required: Max response size
-	maxSizeStr := os.Getenv("MAX_RESPONSE_SIZE")
-	if maxSizeStr == "" {
-		return nil, fmt.Errorf("MAX_RESPONSE_SIZE environment variable is required")
-	}
-	maxSize, err := strconv.ParseInt(maxSizeStr, 10, 64)
+	// Required: Max response size (must be positive)
+	cfg.MaxResponseSize, err = parsePositiveInt64("MAX_RESPONSE_SIZE")
 	if err != nil {
-		return nil, fmt.Errorf("invalid MAX_RESPONSE_SIZE: %w", err)
+		return nil, err
 	}
-	if maxSize <= 0 {
-		return nil, fmt.Errorf("MAX_RESPONSE_SIZE must be positive")
-	}
-	cfg.MaxResponseSize = maxSize
 
-	// Required: Chunk size
-	chunkSizeStr := os.Getenv("CHUNK_SIZE")
-	if chunkSizeStr == "" {
-		return nil, fmt.Errorf("CHUNK_SIZE environment variable is required")
-	}
-	chunkSize, err := strconv.Atoi(chunkSizeStr)
+	// Required: Chunk size (must be positive)
+	cfg.ChunkSize, err = parsePositiveInt("CHUNK_SIZE")
 	if err != nil {
-		return nil, fmt.Errorf("invalid CHUNK_SIZE: %w", err)
+		return nil, err
 	}
-	if chunkSize <= 0 {
-		return nil, fmt.Errorf("CHUNK_SIZE must be positive")
-	}
-	cfg.ChunkSize = chunkSize
 
 	// Required: Database operation timeout
-	dbTimeoutStr := os.Getenv("DB_TIMEOUT")
-	if dbTimeoutStr == "" {
-		return nil, fmt.Errorf("DB_TIMEOUT environment variable is required")
-	}
-	dbTimeout, err := time.ParseDuration(dbTimeoutStr)
+	cfg.DBTimeout, err = parseDuration("DB_TIMEOUT")
 	if err != nil {
-		return nil, fmt.Errorf("invalid DB_TIMEOUT: %w", err)
+		return nil, err
 	}
-	cfg.DBTimeout = dbTimeout
 
 	// Optional: Health check port (0 = disabled)
 	if healthPortStr := os.Getenv("HEALTH_CHECK_PORT"); healthPortStr != "" {
-		healthPort, err := strconv.Atoi(healthPortStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid HEALTH_CHECK_PORT: %w", err)
+		healthPort, parseErr := strconv.Atoi(healthPortStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("invalid HEALTH_CHECK_PORT: %w", parseErr)
 		}
+
 		if healthPort < 0 || healthPort > 65535 {
 			return nil, fmt.Errorf("HEALTH_CHECK_PORT must be between 0 and 65535")
 		}
+
 		cfg.HealthCheckPort = healthPort
 	}
 
 	return cfg, nil
 }
 
-// BackendURL returns the full backend URL
+// BackendURL returns the full backend URL.
 func (c *Config) BackendURL() string {
 	return fmt.Sprintf("%s://%s:%d", c.BackendScheme, c.BackendHost, c.BackendPort)
 }

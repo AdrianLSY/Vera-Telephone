@@ -20,7 +20,7 @@ import (
 	"github.com/verastack/telephone/pkg/websocket"
 )
 
-// Valid HTTP methods
+// Valid HTTP methods.
 var validHTTPMethods = map[string]bool{
 	"GET":     true,
 	"POST":    true,
@@ -31,45 +31,51 @@ var validHTTPMethods = map[string]bool{
 	"OPTIONS": true,
 }
 
-// UUID validation regex
+// UUID validation regex.
 var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // secureRandomDuration returns a cryptographically secure random duration
-// in the range [0, max). This is used for jitter to prevent timing attacks
+// in the range [0, maxDuration). This is used for jitter to prevent timing attacks
 // and thundering herd problems.
-func secureRandomDuration(max time.Duration) time.Duration {
-	if max <= 0 {
+func secureRandomDuration(maxDuration time.Duration) time.Duration {
+	if maxDuration <= 0 {
 		return 0
 	}
+
 	var b [8]byte
+
 	_, err := cryptorand.Read(b[:])
 	if err != nil {
 		// Fallback to zero jitter if crypto/rand fails (very unlikely)
 		return 0
 	}
+
 	n := binary.LittleEndian.Uint64(b[:])
-	return time.Duration(n % uint64(max))
+
+	//nolint:gosec // G115: maxDuration is always positive here, safe conversion
+	return time.Duration(n % uint64(maxDuration))
 }
 
-// defaultBufferSize is the standard buffer size for the pool (1MB)
+// defaultBufferSize is the standard buffer size for the pool (1MB).
 const defaultBufferSize = 1024 * 1024
 
-// bufferPool is used to reuse byte buffers for reading large responses
-// This reduces memory allocations and GC pressure
+// bufferPool reduces memory allocations and GC pressure.
 var bufferPool = sync.Pool{
 	New: func() interface{} {
 		return make([]byte, defaultBufferSize)
 	},
 }
 
-// PendingRequest tracks an in-flight proxy request
+// PendingRequest tracks an in-flight proxy request.
 type PendingRequest struct {
 	RequestID    string
 	ResponseChan chan *ProxyResponse
 	CancelFunc   context.CancelFunc
 }
 
-// ProxyResponse represents a response from the backend
+// ProxyResponse represents a response from the backend.
+//
+//nolint:revive // Name stuttering is acceptable for this exported type for clarity
 type ProxyResponse struct {
 	RequestID string            `json:"request_id"`
 	Status    int               `json:"status"`
@@ -80,7 +86,7 @@ type ProxyResponse struct {
 	Error     error             `json:"-"`
 }
 
-// Telephone is the main client that manages the WebSocket connection and proxy logic
+// Telephone is the main client that manages the WebSocket connection and proxy logic.
 type Telephone struct {
 	config     *config.Config
 	claims     *auth.JWTClaims
@@ -95,7 +101,6 @@ type Telephone struct {
 
 	// Request correlation
 	pendingRequests map[string]*PendingRequest
-	requestLock     sync.RWMutex
 	activeRequests  sync.WaitGroup
 
 	// WebSocket proxy
@@ -118,7 +123,7 @@ type Telephone struct {
 	healthServer *healthServer
 }
 
-// New creates a new Telephone instance
+// New creates a new Telephone instance.
 func New(cfg *config.Config) (*Telephone, error) {
 	// Initialize token store with configurable timeout
 	tokenStore, err := storage.NewTokenStore(cfg.TokenDBPath, cfg.SecretKeyBase, cfg.DBTimeout)
@@ -128,33 +133,36 @@ func New(cfg *config.Config) (*Telephone, error) {
 
 	// Try to load persisted token first
 	var token string
+
 	var claims *auth.JWTClaims
 
 	persistedToken, expiresAt, err := tokenStore.LoadToken()
-	if err == nil && expiresAt.After(time.Now()) {
-		// Use persisted token if it's still valid
-		token = persistedToken
+
+	switch {
+	case err == nil && expiresAt.After(time.Now()):
+		token = persistedToken // Use persisted token if it's still valid
+
 		logger.Info("Loaded persisted token from database", "expires", expiresAt)
-	} else if cfg.Token != "" {
-		// Fall back to environment token
-		token = cfg.Token
+	case cfg.Token != "":
+		token = cfg.Token // Fall back to environment token
+
 		logger.Info("Using token from environment")
-	} else {
+	default:
 		// No token available
-		tokenStore.Close()
+		_ = tokenStore.Close() //nolint:errcheck // Best-effort cleanup on error path
 		return nil, fmt.Errorf("no valid token available: please provide TELEPHONE_TOKEN environment variable or ensure database has a valid token")
 	}
 
 	// Parse JWT without signature verification (tokens come from trusted sources)
 	claims, err = auth.ParseJWTUnsafe(token)
 	if err != nil {
-		tokenStore.Close()
+		_ = tokenStore.Close() //nolint:errcheck // Best-effort cleanup on error path
 		return nil, fmt.Errorf("failed to parse JWT: %w", err)
 	}
 
 	// Validate claims
 	if err := claims.Validate(); err != nil {
-		tokenStore.Close()
+		_ = tokenStore.Close() //nolint:errcheck // Best-effort cleanup on error path
 		return nil, fmt.Errorf("invalid token claims: %w", err)
 	}
 
@@ -207,7 +215,7 @@ func New(cfg *config.Config) (*Telephone, error) {
 	return t, nil
 }
 
-// Start connects to Plugboard and starts the main loop
+// Start connects to Plugboard and starts the main loop.
 func (t *Telephone) Start() error {
 	// Start health check server if configured
 	if t.config.HealthCheckPort > 0 {
@@ -250,10 +258,11 @@ func (t *Telephone) Start() error {
 	go t.monitorConnection()
 
 	logger.Info("Telephone started successfully")
+
 	return nil
 }
 
-// Stop gracefully shuts down the Telephone
+// Stop gracefully shuts down the Telephone.
 func (t *Telephone) Stop() error {
 	logger.Info("Stopping Telephone...")
 
@@ -296,28 +305,31 @@ func (t *Telephone) Stop() error {
 	if t.healthServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+
 		if err := t.healthServer.Stop(ctx); err != nil {
 			logger.Warn("Error stopping health check server", "error", err)
 		}
 	}
 
 	logger.Info("Telephone stopped")
+
 	return nil
 }
 
-// Wait blocks until the Telephone is stopped
+// Wait blocks until the Telephone is stopped.
 func (t *Telephone) Wait() {
 	<-t.ctx.Done()
 }
 
-// getCurrentToken safely retrieves the current token
+// getCurrentToken safely retrieves the current token.
 func (t *Telephone) getCurrentToken() string {
 	t.tokenMu.RLock()
 	defer t.tokenMu.RUnlock()
+
 	return t.currentToken
 }
 
-// updateToken safely updates the current token and claims
+// updateToken safely updates the current token and claims.
 func (t *Telephone) updateToken(newToken string, newClaims *auth.JWTClaims) {
 	t.tokenMu.Lock()
 	defer t.tokenMu.Unlock()
@@ -326,7 +338,7 @@ func (t *Telephone) updateToken(newToken string, newClaims *auth.JWTClaims) {
 	t.config.Token = newToken
 }
 
-// joinChannel joins the telephone channel
+// joinChannel joins the telephone channel.
 func (t *Telephone) joinChannel() error {
 	topic := fmt.Sprintf("telephone:%s", t.claims.PathID)
 	ref := t.client.NextRef()
@@ -355,7 +367,7 @@ func (t *Telephone) joinChannel() error {
 	return nil
 }
 
-// heartbeatLoop sends periodic heartbeats
+// heartbeatLoop sends periodic heartbeats.
 func (t *Telephone) heartbeatLoop() {
 	defer t.wg.Done()
 
@@ -379,7 +391,7 @@ func (t *Telephone) heartbeatLoop() {
 	}
 }
 
-// sendHeartbeat sends a heartbeat message
+// sendHeartbeat sends a heartbeat message.
 func (t *Telephone) sendHeartbeat() error {
 	topic := fmt.Sprintf("telephone:%s", t.claims.PathID)
 	ref := t.client.NextRef()
@@ -399,15 +411,16 @@ func (t *Telephone) sendHeartbeat() error {
 	t.heartbeatLock.Unlock()
 
 	logger.Debug("Heartbeat sent", "ref", ref)
+
 	return nil
 }
 
-// handleHeartbeatAck handles heartbeat acknowledgment from Plugboard
-func (t *Telephone) handleHeartbeatAck(msg *channels.Message) {
+// handleHeartbeatAck handles heartbeat acknowledgment from Plugboard.
+func (t *Telephone) handleHeartbeatAck(_ *channels.Message) {
 	logger.Debug("Heartbeat acknowledged")
 }
 
-// tokenRefreshLoop refreshes the JWT token at half of its lifespan
+// tokenRefreshLoop refreshes the JWT token at half of its lifespan.
 func (t *Telephone) tokenRefreshLoop() {
 	defer t.wg.Done()
 
@@ -422,6 +435,7 @@ func (t *Telephone) tokenRefreshLoop() {
 		// If token is already past half-life, refresh immediately
 		if timeUntilRefresh == 0 {
 			logger.Info("Token is already at half-life, refreshing immediately")
+
 			timeUntilRefresh = 1 * time.Second
 		} else {
 			// Add jitter: ±5% randomization for unpredictability
@@ -466,12 +480,11 @@ func (t *Telephone) tokenRefreshLoop() {
 					continue
 				}
 			}
-			// After successful refresh, loop will recalculate based on new token
 		}
 	}
 }
 
-// refreshToken requests a new JWT token
+// refreshToken requests a new JWT token.
 func (t *Telephone) refreshToken() error {
 	topic := fmt.Sprintf("telephone:%s", t.claims.PathID)
 	ref := t.client.NextRef()
@@ -491,6 +504,7 @@ func (t *Telephone) refreshToken() error {
 	}
 
 	response := reply.GetResponse()
+
 	newToken, ok := response["token"].(string)
 	if !ok {
 		return fmt.Errorf("no token in refresh response")
@@ -508,9 +522,10 @@ func (t *Telephone) refreshToken() error {
 	}
 
 	// Save encrypted token to database with retry logic
-	if err := t.persistTokenWithRetry(newToken, newClaims.ExpiresAt(), 3); err != nil {
-		logger.Warn("Failed to persist token to database after retries", "error", err)
+	persistErr := t.persistTokenWithRetry(newToken, newClaims.ExpiresAt(), 3)
+	if persistErr != nil {
 		// Don't fail the refresh if persistence fails - token is still valid in memory
+		logger.Warn("Failed to persist token to database after retries", "error", persistErr)
 	} else {
 		logger.Info("Token persisted to database")
 	}
@@ -537,9 +552,10 @@ func (t *Telephone) refreshToken() error {
 	return nil
 }
 
-// persistTokenWithRetry attempts to save the token to the database with retries
+// persistTokenWithRetry attempts to save the token to the database with retries.
 func (t *Telephone) persistTokenWithRetry(token string, expiresAt time.Time, maxRetries int) error {
 	var lastErr error
+
 	backoff := 100 * time.Millisecond
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -559,7 +575,7 @@ func (t *Telephone) persistTokenWithRetry(token string, expiresAt time.Time, max
 					return fmt.Errorf("shutdown during token persistence: %w", lastErr)
 				case <-time.After(backoff):
 					// Exponential backoff with jitter
-					backoff = backoff * 2
+					backoff *= 2
 					if backoff > 2*time.Second {
 						backoff = 2 * time.Second
 					}
@@ -573,7 +589,7 @@ func (t *Telephone) persistTokenWithRetry(token string, expiresAt time.Time, max
 	return fmt.Errorf("token persistence failed after %d attempts: %w", maxRetries, lastErr)
 }
 
-// validateProxyRequest validates incoming proxy request payload
+// validateProxyRequest validates incoming proxy request payload.
 func validateProxyRequest(payload map[string]interface{}) error {
 	// Validate request_id
 	requestID, ok := payload["request_id"].(string)
@@ -585,6 +601,7 @@ func validateProxyRequest(payload map[string]interface{}) error {
 	if len(requestID) != 36 {
 		return fmt.Errorf("request_id must be exactly 36 characters (UUID format)")
 	}
+
 	if !uuidRegex.MatchString(requestID) {
 		return fmt.Errorf("request_id must be a valid UUID")
 	}
@@ -594,6 +611,7 @@ func validateProxyRequest(payload map[string]interface{}) error {
 	if !ok || method == "" {
 		return fmt.Errorf("missing or invalid method")
 	}
+
 	if !validHTTPMethods[strings.ToUpper(method)] {
 		return fmt.Errorf("invalid HTTP method: %s", method)
 	}
@@ -603,6 +621,7 @@ func validateProxyRequest(payload map[string]interface{}) error {
 	if !ok {
 		return fmt.Errorf("missing or invalid path")
 	}
+
 	if path == "" {
 		return fmt.Errorf("path cannot be empty")
 	}
@@ -613,6 +632,7 @@ func validateProxyRequest(payload map[string]interface{}) error {
 			if k == "" {
 				return fmt.Errorf("header name cannot be empty")
 			}
+
 			if _, ok := v.(string); !ok {
 				return fmt.Errorf("header value must be string for key: %s", k)
 			}
@@ -622,7 +642,7 @@ func validateProxyRequest(payload map[string]interface{}) error {
 	return nil
 }
 
-// handleProxyRequest handles an incoming proxy request from Plugboard
+// handleProxyRequest handles an incoming proxy request from Plugboard.
 func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 	// Track active request
 	t.activeRequests.Add(1)
@@ -631,22 +651,27 @@ func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 	// Validate request
 	if err := validateProxyRequest(msg.Payload); err != nil {
 		logger.Error("Invalid proxy request", "error", err)
-		requestID, _ := msg.Payload["request_id"].(string)
+
+		requestID, _ := msg.Payload["request_id"].(string) //nolint:errcheck // Type assertion is safe here
 		if requestID != "" {
-			t.sendProxyResponse(&ProxyResponse{
+			if sendErr := t.sendProxyResponse(&ProxyResponse{
 				RequestID: requestID,
 				Status:    400,
 				Headers:   map[string]string{"Content-Type": "text/plain"},
 				Body:      fmt.Sprintf("Bad request: %v", err),
 				Chunked:   false,
-			})
+			}); sendErr != nil {
+				logger.Error("Error sending error response", "error", sendErr)
+			}
 		}
+
 		return
 	}
 
-	requestID := msg.Payload["request_id"].(string)
-	method := msg.Payload["method"].(string)
-	path := msg.Payload["path"].(string)
+	// Type assertions are safe here - payload was validated above
+	requestID := msg.Payload["request_id"].(string) //nolint:errcheck
+	method := msg.Payload["method"].(string)        //nolint:errcheck
+	path := msg.Payload["path"].(string)            //nolint:errcheck
 
 	logger.Info("Received proxy request",
 		"request_id", requestID,
@@ -661,13 +686,17 @@ func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 			"request_id", requestID,
 			"error", err,
 		)
-		t.sendProxyResponse(&ProxyResponse{
+
+		if sendErr := t.sendProxyResponse(&ProxyResponse{
 			RequestID: requestID,
 			Status:    502,
 			Headers:   map[string]string{"Content-Type": "text/plain"},
 			Body:      fmt.Sprintf("Bad Gateway: %v", err),
 			Chunked:   false,
-		})
+		}); sendErr != nil {
+			logger.Error("Error sending error response", "error", sendErr)
+		}
+
 		return
 	}
 
@@ -680,11 +709,14 @@ func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 	}
 }
 
-// forwardToBackend forwards the request to the local backend
+// forwardToBackend forwards the request to the local backend.
+//
+//nolint:gocyclo // Complex function with necessary validation and error handling
 func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResponse, error) {
-	requestID := payload["request_id"].(string)
-	method := payload["method"].(string)
-	path := payload["path"].(string)
+	// Type assertions are safe - payload was validated by validateProxyRequest
+	requestID := payload["request_id"].(string) //nolint:errcheck
+	method := payload["method"].(string)        //nolint:errcheck
+	path := payload["path"].(string)            //nolint:errcheck
 
 	// Build backend URL
 	backendURL := fmt.Sprintf("%s%s", t.config.BackendURL(), path)
@@ -723,25 +755,34 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 	if err != nil {
 		return nil, fmt.Errorf("backend request failed: %w", err)
 	}
-	defer resp.Body.Close()
+
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.Warn("Failed to close response body", "error", closeErr)
+		}
+	}()
 
 	// Read response body with streaming for large responses
 	chunkSize := t.config.ChunkSize
+
 	var chunks []string
+
 	var totalSize int
 
 	// Get buffer from pool and ensure it's the right size
-	buf := bufferPool.Get().([]byte)
+	buf := bufferPool.Get().([]byte) //nolint:errcheck // Type assertion is safe - pool only contains []byte
 	bufferFromPool := true
+
 	if len(buf) < chunkSize {
 		// Need a larger buffer - create one but don't return it to pool
 		buf = make([]byte, chunkSize)
 		bufferFromPool = false
 	}
+
 	defer func() {
 		// Only return standard-sized buffers to the pool to prevent memory growth
 		if bufferFromPool && len(buf) == defaultBufferSize {
-			bufferPool.Put(buf)
+			bufferPool.Put(buf) //nolint:staticcheck // SA6002: buf is a slice, Put takes interface{}
 		}
 	}()
 
@@ -751,9 +792,11 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 			chunks = append(chunks, string(buf[:n]))
 			totalSize += n
 		}
+
 		if err == io.EOF {
 			break
 		}
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response body: %w", err)
 		}
@@ -766,6 +809,7 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 
 	// Build response headers
 	responseHeaders := make(map[string]string)
+
 	for k, v := range resp.Header {
 		if len(v) > 0 {
 			responseHeaders[k] = v[0]
@@ -797,7 +841,7 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 	}, nil
 }
 
-// sendProxyResponse sends a proxy response back to Plugboard
+// sendProxyResponse sends a proxy response back to Plugboard.
 func (t *Telephone) sendProxyResponse(resp *ProxyResponse) error {
 	topic := fmt.Sprintf("telephone:%s", t.claims.PathID)
 	ref := t.client.NextRef()
@@ -833,5 +877,6 @@ func (t *Telephone) sendProxyResponse(resp *ProxyResponse) error {
 			"status", resp.Status,
 		)
 	}
+
 	return nil
 }

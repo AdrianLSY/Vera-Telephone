@@ -8,7 +8,7 @@ import (
 	"github.com/verastack/telephone/pkg/channels"
 )
 
-// MockChannelsClient is a mock implementation of ChannelsClient for testing
+// MockChannelsClient is a mock implementation of ChannelsClient for testing.
 type MockChannelsClient struct {
 	mu                         sync.Mutex
 	connected                  bool
@@ -28,7 +28,7 @@ type MockChannelsClient struct {
 	nextRef                    int
 }
 
-// Connect simulates connecting to WebSocket
+// Connect simulates connecting to WebSocket.
 func (m *MockChannelsClient) Connect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -61,31 +61,34 @@ func (m *MockChannelsClient) Connect() error {
 	return fmt.Errorf("connection failed")
 }
 
-// Disconnect simulates disconnecting
+// Disconnect simulates disconnecting.
 func (m *MockChannelsClient) Disconnect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.connected = false
 	m.disconnectCalled = true
+
 	return nil
 }
 
-// Close permanently closes the client
+// Close permanently closes the client.
 func (m *MockChannelsClient) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.connected = false
+
 	return nil
 }
 
-// IsConnected returns connection status
+// IsConnected returns connection status.
 func (m *MockChannelsClient) IsConnected() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	return m.connected
 }
 
-// Send sends a message
+// Send sends a message.
 func (m *MockChannelsClient) Send(msg *channels.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -160,7 +163,7 @@ func (m *MockChannelsClient) Send(msg *channels.Message) error {
 	return nil
 }
 
-// SendAndWait sends a message and waits for reply
+// SendAndWait sends a message and waits for reply.
 func (m *MockChannelsClient) SendAndWait(msg *channels.Message, timeout time.Duration) (*channels.Message, error) {
 	if err := m.Send(msg); err != nil {
 		return nil, err
@@ -175,39 +178,43 @@ func (m *MockChannelsClient) SendAndWait(msg *channels.Message, timeout time.Dur
 	}
 }
 
-// On registers event handler
+// On registers event handler.
 func (m *MockChannelsClient) On(event string, handler channels.MessageHandler) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	if m.handlers == nil {
 		m.handlers = make(map[string]channels.MessageHandler)
 	}
+
 	m.handlers[event] = handler
 }
 
-// UpdateURL updates the WebSocket URL
+// UpdateURL updates the WebSocket URL.
 func (m *MockChannelsClient) UpdateURL(url string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastUpdatedURL = url
 }
 
-// UpdateToken updates the authentication token
+// UpdateToken updates the authentication token.
 func (m *MockChannelsClient) UpdateToken(token string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastUpdatedToken = token
 }
 
-// NextRef returns next reference number
+// NextRef returns next reference number.
 func (m *MockChannelsClient) NextRef() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.nextRef++
+
 	return fmt.Sprintf("%d", m.nextRef)
 }
 
-// Helper function to check if string contains substring
+// Helper function to check if string contains substring.
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findInString(s, substr))
 }
@@ -218,5 +225,6 @@ func findInString(s, substr string) bool {
 			return true
 		}
 	}
+
 	return false
 }

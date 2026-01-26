@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// captureOutput captures log output for testing
+// captureOutput captures log output for testing.
 func captureOutput(t *testing.T, level, format string, logFunc func()) string {
 	t.Helper()
 
@@ -15,6 +15,7 @@ func captureOutput(t *testing.T, level, format string, logFunc func()) string {
 
 	// Create a handler that writes to our buffer
 	var handler slog.Handler
+
 	opts := &slog.HandlerOptions{
 		Level: parseLevel(level),
 	}
@@ -29,6 +30,7 @@ func captureOutput(t *testing.T, level, format string, logFunc func()) string {
 	// Temporarily replace the logger
 	oldLogger := Logger
 	Logger = slog.New(handler)
+
 	defer func() { Logger = oldLogger }()
 
 	logFunc()
@@ -36,7 +38,7 @@ func captureOutput(t *testing.T, level, format string, logFunc func()) string {
 	return buf.String()
 }
 
-// parseLevel converts string level to slog.Level
+// parseLevel converts string level to slog.Level.
 func parseLevel(level string) slog.Level {
 	switch strings.ToLower(level) {
 	case "debug":
@@ -53,6 +55,29 @@ func parseLevel(level string) slog.Level {
 }
 
 func TestInit(t *testing.T) {
+	// Note: Init uses sync.Once, so it only works once per process.
+	// This test verifies that Init initializes the logger on first call.
+	// Subsequent calls to Init are no-ops by design.
+	// Save original logger
+	oldLogger := Logger
+
+	// Reset Logger to nil to test initialization
+	Logger = nil
+
+	// Call Init - this should initialize the logger
+	Init("info", "text")
+
+	// Verify logger is not nil after Init
+	if Logger == nil {
+		t.Error("Logger should not be nil after Init")
+	}
+
+	// Restore original logger
+	Logger = oldLogger
+}
+
+func TestInitLogger(t *testing.T) {
+	// Test initLogger directly since Init uses sync.Once
 	tests := []struct {
 		name   string
 		level  string
@@ -74,12 +99,12 @@ func TestInit(t *testing.T) {
 			// Save original logger
 			oldLogger := Logger
 
-			// Initialize with test settings
-			Init(tt.level, tt.format)
+			// Initialize with test settings using initLogger directly
+			initLogger(tt.level, tt.format)
 
 			// Verify logger is not nil
 			if Logger == nil {
-				t.Error("Logger should not be nil after Init")
+				t.Error("Logger should not be nil after initLogger")
 			}
 
 			// Restore original logger
@@ -96,9 +121,11 @@ func TestInfo(t *testing.T) {
 	if !strings.Contains(output, "test message") {
 		t.Errorf("Expected output to contain 'test message', got: %s", output)
 	}
+
 	if !strings.Contains(output, "key=value") {
 		t.Errorf("Expected output to contain 'key=value', got: %s", output)
 	}
+
 	if !strings.Contains(output, "INFO") {
 		t.Errorf("Expected output to contain 'INFO', got: %s", output)
 	}
@@ -112,6 +139,7 @@ func TestError(t *testing.T) {
 	if !strings.Contains(output, "error message") {
 		t.Errorf("Expected output to contain 'error message', got: %s", output)
 	}
+
 	if !strings.Contains(output, "ERROR") {
 		t.Errorf("Expected output to contain 'ERROR', got: %s", output)
 	}
@@ -126,6 +154,7 @@ func TestDebug(t *testing.T) {
 	if !strings.Contains(output, "debug message") {
 		t.Errorf("Expected output to contain 'debug message', got: %s", output)
 	}
+
 	if !strings.Contains(output, "DEBUG") {
 		t.Errorf("Expected output to contain 'DEBUG', got: %s", output)
 	}
@@ -150,6 +179,7 @@ func TestWarn(t *testing.T) {
 	if !strings.Contains(output, "warning message") {
 		t.Errorf("Expected output to contain 'warning message', got: %s", output)
 	}
+
 	if !strings.Contains(output, "WARN") {
 		t.Errorf("Expected output to contain 'WARN', got: %s", output)
 	}
@@ -162,6 +192,7 @@ func TestWith(t *testing.T) {
 	var buf bytes.Buffer
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	Logger = slog.New(handler)
+
 	defer func() { Logger = oldLogger }()
 
 	// Create a logger with attributes
@@ -174,6 +205,7 @@ func TestWith(t *testing.T) {
 	if !strings.Contains(output, "component=test") {
 		t.Errorf("Expected output to contain 'component=test', got: %s", output)
 	}
+
 	if !strings.Contains(output, "version=1.0") {
 		t.Errorf("Expected output to contain 'version=1.0', got: %s", output)
 	}
@@ -188,9 +220,11 @@ func TestJSONFormat(t *testing.T) {
 	if !strings.Contains(output, `"msg":"json test"`) {
 		t.Errorf("Expected JSON output to contain msg field, got: %s", output)
 	}
+
 	if !strings.Contains(output, `"key":"value"`) {
 		t.Errorf("Expected JSON output to contain key field, got: %s", output)
 	}
+
 	if !strings.Contains(output, `"level":"INFO"`) {
 		t.Errorf("Expected JSON output to contain level field, got: %s", output)
 	}
@@ -334,7 +368,7 @@ func TestNoAttributes(t *testing.T) {
 	}
 }
 
-// BenchmarkInfo benchmarks Info logging
+// BenchmarkInfo benchmarks Info logging.
 func BenchmarkInfo(b *testing.B) {
 	// Use a no-op handler for benchmarking
 	var buf bytes.Buffer
@@ -342,42 +376,46 @@ func BenchmarkInfo(b *testing.B) {
 	Logger = slog.New(handler)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		Info("benchmark message", "key", "value")
 	}
 }
 
-// BenchmarkDebugDisabled benchmarks Debug when disabled (should be fast)
+// BenchmarkDebugDisabled benchmarks Debug when disabled (should be fast).
 func BenchmarkDebugDisabled(b *testing.B) {
 	var buf bytes.Buffer
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	Logger = slog.New(handler)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		Debug("benchmark message", "key", "value")
 	}
 }
 
-// BenchmarkWith benchmarks creating child loggers
+// BenchmarkWith benchmarks creating child loggers.
 func BenchmarkWith(b *testing.B) {
 	var buf bytes.Buffer
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	Logger = slog.New(handler)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		_ = With("component", "test", "version", "1.0")
 	}
 }
 
-// BenchmarkJSONFormat benchmarks JSON formatted logging
+// BenchmarkJSONFormat benchmarks JSON formatted logging.
 func BenchmarkJSONFormat(b *testing.B) {
 	var buf bytes.Buffer
 	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	Logger = slog.New(handler)
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		Info("benchmark message", "key", "value", "count", 42)
 	}

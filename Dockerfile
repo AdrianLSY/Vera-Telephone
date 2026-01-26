@@ -1,8 +1,8 @@
 # Build stage
 FROM golang:1.25-alpine AS builder
 
-# Install build dependencies (CGO required for sqlite3)
-RUN apk add --no-cache git ca-certificates gcc musl-dev sqlite-dev
+# Install build dependencies (no CGO needed with pure-Go SQLite)
+RUN apk add --no-cache git ca-certificates
 
 WORKDIR /build
 
@@ -13,8 +13,8 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the binary with CGO enabled for sqlite3
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+# Build the binary (pure Go, no CGO required)
+RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')" \
     -o telephone \
     ./cmd/telephone
@@ -23,7 +23,7 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
 FROM alpine:3.23
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata sqlite-libs
+RUN apk add --no-cache ca-certificates tzdata
 
 # Create non-root user
 RUN addgroup -g 1000 telephone && \
