@@ -101,6 +101,7 @@ func isPlugboardAvailable(t *testing.T) bool {
 // parsePort converts port string to int.
 func parsePort(portStr string) (int, bool) {
 	var port int
+
 	_, err := fmt.Sscanf(portStr, "%d", &port)
 
 	return port, err == nil

@@ -101,6 +101,7 @@ func createTestWSServer(t *testing.T, handler func(*websocket.Conn)) *httptest.S
 		}
 
 		defer conn.Close()
+
 		handler(conn)
 	}))
 }
@@ -254,6 +255,7 @@ func TestManagerSendFrame(t *testing.T) {
 			if err != nil {
 				return
 			}
+
 			received <- data
 		}
 	})

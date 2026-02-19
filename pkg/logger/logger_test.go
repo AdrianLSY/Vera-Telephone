@@ -190,6 +190,7 @@ func TestWith(t *testing.T) {
 	oldLogger := Logger
 
 	var buf bytes.Buffer
+
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	Logger = slog.New(handler)
 
@@ -372,6 +373,7 @@ func TestNoAttributes(t *testing.T) {
 func BenchmarkInfo(b *testing.B) {
 	// Use a no-op handler for benchmarking
 	var buf bytes.Buffer
+
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	Logger = slog.New(handler)
 
@@ -385,6 +387,7 @@ func BenchmarkInfo(b *testing.B) {
 // BenchmarkDebugDisabled benchmarks Debug when disabled (should be fast).
 func BenchmarkDebugDisabled(b *testing.B) {
 	var buf bytes.Buffer
+
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	Logger = slog.New(handler)
 
@@ -398,6 +401,7 @@ func BenchmarkDebugDisabled(b *testing.B) {
 // BenchmarkWith benchmarks creating child loggers.
 func BenchmarkWith(b *testing.B) {
 	var buf bytes.Buffer
+
 	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	Logger = slog.New(handler)
 
@@ -411,6 +415,7 @@ func BenchmarkWith(b *testing.B) {
 // BenchmarkJSONFormat benchmarks JSON formatted logging.
 func BenchmarkJSONFormat(b *testing.B) {
 	var buf bytes.Buffer
+
 	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
 	Logger = slog.New(handler)
 

@@ -1,3 +1,4 @@
+// Package storage provides encrypted token persistence using SQLite.
 package storage
 
 import (

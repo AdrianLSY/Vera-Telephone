@@ -71,6 +71,8 @@ const (
 	ErrBackendError ErrorReason = "backend_error"
 	// ErrInvalidFrameData indicates the frame data could not be decoded.
 	ErrInvalidFrameData ErrorReason = "invalid_frame_data"
+	// ErrInvalidPath indicates the WebSocket path failed validation.
+	ErrInvalidPath ErrorReason = "invalid_path"
 )
 
 // String returns the string representation of the error reason.

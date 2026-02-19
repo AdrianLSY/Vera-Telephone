@@ -788,6 +788,207 @@ func createMinimalTelephoneWithConfig(t *testing.T, cfg *config.Config, backendU
 	return tel
 }
 
+// TestValidateBackendPath tests the validateBackendPath function.
+func TestValidateBackendPath(t *testing.T) {
+	tests := []struct {
+		name        string
+		path        string
+		wantPath    string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "valid simple path",
+			path:        "/api/users",
+			wantPath:    "/api/users",
+			expectError: false,
+		},
+		{
+			name:        "valid path with query string",
+			path:        "/api/users?foo=bar",
+			wantPath:    "/api/users?foo=bar",
+			expectError: false,
+		},
+		{
+			name:        "valid root path",
+			path:        "/",
+			wantPath:    "/",
+			expectError: false,
+		},
+		{
+			name:        "valid nested path",
+			path:        "/api/v1/users/123/profile",
+			wantPath:    "/api/v1/users/123/profile",
+			expectError: false,
+		},
+		{
+			name:        "path with dot that's valid",
+			path:        "/api/file.json",
+			wantPath:    "/api/file.json",
+			expectError: false,
+		},
+		{
+			name:        "path without leading slash",
+			path:        "api/users",
+			expectError: true,
+			errorMsg:    "path must start with /",
+		},
+		{
+			name:        "empty path",
+			path:        "",
+			expectError: true,
+			errorMsg:    "path must start with /",
+		},
+		{
+			name:        "protocol-relative URL",
+			path:        "//evil.com/path",
+			expectError: true,
+			errorMsg:    "protocol-relative URLs are not allowed",
+		},
+		{
+			name:        "absolute URL with scheme",
+			path:        "http://evil.com/path",
+			expectError: true,
+			errorMsg:    "path must start with /",
+		},
+		{
+			name:        "path traversal attempt starting with slash - cleaned",
+			path:        "/../etc/passwd",
+			wantPath:    "/etc/passwd",
+			expectError: false, // Starts with /, cleaned to /etc/passwd
+		},
+		{
+			name:        "path traversal without leading slash - rejected",
+			path:        "../etc/passwd",
+			expectError: true,
+			errorMsg:    "path must start with /",
+		},
+		{
+			name:        "path traversal cleaned but still valid",
+			path:        "/api/../users",
+			wantPath:    "/users",
+			expectError: false,
+		},
+		{
+			name:        "path with double dots in middle",
+			path:        "/api/foo/../bar",
+			wantPath:    "/api/bar",
+			expectError: false,
+		},
+		{
+			name:        "path with single dot",
+			path:        "/api/./users",
+			wantPath:    "/api/users",
+			expectError: false,
+		},
+		{
+			name:        "path traversal beyond root is cleaned",
+			path:        "/api/../../users",
+			wantPath:    "/users",
+			expectError: false,
+		},
+		{
+			name:        "URL with host in path",
+			path:        "/https://evil.com",
+			wantPath:    "/https:/evil.com",
+			expectError: false, // This is cleaned by path.Clean, not a security issue
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := validateBackendPath(tt.path)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error containing '%s', got nil", tt.errorMsg)
+				} else if !strings.Contains(err.Error(), tt.errorMsg) {
+					t.Errorf("expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+
+				if result != tt.wantPath {
+					t.Errorf("expected path '%s', got '%s'", tt.wantPath, result)
+				}
+			}
+		})
+	}
+}
+
+// TestForwardToBackendPathValidation tests that forwardToBackend validates paths.
+func TestForwardToBackendPathValidation(t *testing.T) {
+	// Create a backend server that should never be called for invalid paths
+	backendCalls := 0
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		backendCalls++
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	tel := createMinimalTelephoneT(t, backend.URL)
+
+	tests := []struct {
+		name        string
+		path        string
+		expectError bool
+	}{
+		{
+			name:        "valid path succeeds",
+			path:        "/api/test",
+			expectError: false,
+		},
+		{
+			name:        "protocol-relative path fails",
+			path:        "//evil.com/steal",
+			expectError: true,
+		},
+		{
+			name:        "path without slash fails",
+			path:        "no-slash",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backendCalls = 0
+
+			payload := map[string]interface{}{
+				"request_id": "550e8400-e29b-41d4-a716-446655440000",
+				"method":     "GET",
+				"path":       tt.path,
+				"headers":    map[string]interface{}{},
+				"body":       "",
+			}
+
+			_, err := tel.forwardToBackend(payload)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("expected error for invalid path")
+				}
+
+				if backendCalls != 0 {
+					t.Errorf("backend should not be called for invalid path, got %d calls", backendCalls)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+
+				if backendCalls != 1 {
+					t.Errorf("expected 1 backend call, got %d", backendCalls)
+				}
+			}
+		})
+	}
+}
+
 // Helper function to create minimal Telephone for token tests.
 func createMinimalTelephoneForTokenTest(t *testing.T) *Telephone {
 	t.Helper()

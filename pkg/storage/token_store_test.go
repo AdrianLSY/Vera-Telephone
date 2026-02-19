@@ -499,6 +499,7 @@ func TestTokenStoreConcurrentAccess(t *testing.T) {
 			if saveErr != nil {
 				t.Errorf("failed to save token %d: %v", idx, saveErr)
 			}
+
 			done <- true
 		}(i)
 	}

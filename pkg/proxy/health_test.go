@@ -23,6 +23,7 @@ type mockHealthClient struct {
 func (m *mockHealthClient) Connect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.connected = true
 
 	return nil
@@ -31,6 +32,7 @@ func (m *mockHealthClient) Connect() error {
 func (m *mockHealthClient) Disconnect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.connected = false
 
 	return nil

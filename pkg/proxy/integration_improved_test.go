@@ -52,6 +52,7 @@ func TestIntegrationLifecycle(t *testing.T) {
 
 				// Verify token doesn't change immediately
 				time.Sleep(1 * time.Second)
+
 				currentToken := setup.Tel.getCurrentToken()
 
 				if currentToken != initialToken {
@@ -115,6 +116,7 @@ func TestIntegrationProxyRequests(t *testing.T) {
 				if resp.Status != 200 {
 					t.Errorf("Expected status 200, got %d", resp.Status)
 				}
+
 				if !strings.Contains(resp.Body, "success") {
 					t.Errorf("Expected success in body, got: %s", resp.Body)
 				}
@@ -127,7 +129,9 @@ func TestIntegrationProxyRequests(t *testing.T) {
 			setupBackend: func(_ *testing.T) *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					body, _ := io.ReadAll(r.Body)
+
 					var data map[string]interface{}
+
 					_ = json.Unmarshal(body, &data) // Ignore error in test handler
 
 					w.Header().Set("Content-Type", "application/json")
@@ -150,6 +154,7 @@ func TestIntegrationProxyRequests(t *testing.T) {
 				if resp.Status != 201 {
 					t.Errorf("Expected status 201, got %d", resp.Status)
 				}
+
 				if !strings.Contains(resp.Body, `"id":123`) {
 					t.Errorf("Expected id in response, got: %s", resp.Body)
 				}
@@ -179,15 +184,18 @@ func TestIntegrationProxyRequests(t *testing.T) {
 				if !resp.Chunked {
 					t.Error("Expected large response to be chunked")
 				}
+
 				if len(resp.Chunks) == 0 {
 					t.Error("Expected non-empty chunks array")
 				}
 
 				// Verify total size
 				totalSize := 0
+
 				for _, chunk := range resp.Chunks {
 					totalSize += len(chunk)
 				}
+
 				if totalSize != 2*1024*1024 {
 					t.Errorf("Expected 2MB total, got %d bytes", totalSize)
 				}
@@ -199,8 +207,10 @@ func TestIntegrationProxyRequests(t *testing.T) {
 			name: "concurrent_requests",
 			setupBackend: func(_ *testing.T) *httptest.Server {
 				var counter int32
+
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					count := atomic.AddInt32(&counter, 1)
+
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					fmt.Fprintf(w, `{"request_number":%d}`, count)
@@ -417,6 +427,7 @@ func TestIntegrationContextAndShutdown(t *testing.T) {
 
 				// Wait should return
 				done := make(chan struct{})
+
 				go func() {
 					setup.Tel.Wait()
 					close(done)

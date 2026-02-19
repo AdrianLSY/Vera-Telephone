@@ -40,7 +40,6 @@ func ParseJWT(tokenString, secretKey string) (*JWTClaims, error) {
 
 		return []byte(secretKey), nil
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse JWT: %w", err)
 	}

@@ -48,6 +48,10 @@ func (t *Telephone) handleWSConnect(msg *channels.Message) {
 
 	// Build backend WebSocket URL
 	backendURL := t.buildWSBackendURL(path, queryString)
+	if backendURL == "" {
+		t.sendWSError(connectionID, websocket.ErrInvalidPath)
+		return
+	}
 
 	// Attempt connection
 	protocol, err := t.wsManager.Connect(connectionID, backendURL, headers)
@@ -271,19 +275,27 @@ func (t *Telephone) sendWSErrorRaw(connectionID, reason string) {
 }
 
 // buildWSBackendURL constructs the WebSocket URL for the backend.
+// Returns empty string if path validation fails.
 func (t *Telephone) buildWSBackendURL(path, queryString string) string {
+	// Validate and sanitize path to prevent SSRF and path traversal
+	validatedPath, err := validateBackendPath(path)
+	if err != nil {
+		logger.Error("Invalid WebSocket path", "path", path, "error", err)
+		return ""
+	}
+
 	// Determine WebSocket scheme based on backend scheme
 	wsScheme := "ws"
 	if t.config.BackendScheme == "https" {
 		wsScheme = "wss"
 	}
 
-	url := fmt.Sprintf("%s://%s:%d%s", wsScheme, t.config.BackendHost, t.config.BackendPort, path)
+	wsURL := fmt.Sprintf("%s://%s:%d%s", wsScheme, t.config.BackendHost, t.config.BackendPort, validatedPath)
 	if queryString != "" {
-		url += "?" + queryString
+		wsURL += "?" + queryString
 	}
 
-	return url
+	return wsURL
 }
 
 // handleWSCheck handles the ws_check event from Plugboard.
@@ -318,6 +330,10 @@ func (t *Telephone) handleWSCheck(msg *channels.Message) {
 
 	// Build backend WebSocket URL (reuse existing method)
 	backendURL := t.buildWSBackendURL(path, queryString)
+	if backendURL == "" {
+		t.sendWSCheckResult(checkID, false, "", "invalid path")
+		return
+	}
 
 	// Create context with timeout (3 seconds to leave buffer for the 5s Plugboard timeout)
 	ctx, cancel := context.WithTimeout(t.ctx, 3*time.Second)

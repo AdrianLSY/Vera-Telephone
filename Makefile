@@ -53,9 +53,9 @@ bench: ## Run benchmarks
 	@echo "Running benchmarks..."
 	$(GO) test -bench=. -benchmem ./...
 
-lint: ## Run linter (requires golangci-lint)
+lint: ## Run linter (requires golangci-lint v2)
 	@echo "Running linter..."
-	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" && exit 1)
+	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest" && exit 1)
 	golangci-lint run ./...
 
 fmt: ## Format code

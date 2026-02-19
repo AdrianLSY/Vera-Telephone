@@ -123,18 +123,23 @@ func TestFromJSON(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, msg *Message) {
 				t.Helper()
+
 				if msg.JoinRef != "1" {
 					t.Errorf("expected JoinRef '1', got %s", msg.JoinRef)
 				}
+
 				if msg.Ref != "2" {
 					t.Errorf("expected Ref '2', got %s", msg.Ref)
 				}
+
 				if msg.Topic != "telephone:path" {
 					t.Errorf("expected Topic 'telephone:path', got %s", msg.Topic)
 				}
+
 				if msg.Event != "phx_join" {
 					t.Errorf("expected Event 'phx_join', got %s", msg.Event)
 				}
+
 				if msg.Payload["key"] != "value" {
 					t.Errorf("expected payload key 'value', got %v", msg.Payload["key"])
 				}
@@ -146,9 +151,11 @@ func TestFromJSON(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, msg *Message) {
 				t.Helper()
+
 				if msg.JoinRef != "" {
 					t.Errorf("expected empty JoinRef, got %s", msg.JoinRef)
 				}
+
 				if msg.Ref != "" {
 					t.Errorf("expected empty Ref, got %s", msg.Ref)
 				}
@@ -160,6 +167,7 @@ func TestFromJSON(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, msg *Message) {
 				t.Helper()
+
 				if msg.Event != "phx_reply" {
 					t.Errorf("expected Event 'phx_reply', got %s", msg.Event)
 				}
