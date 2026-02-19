@@ -65,6 +65,7 @@ func (m *MockChannelsClient) Connect() error {
 func (m *MockChannelsClient) Disconnect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.connected = false
 	m.disconnectCalled = true
 
@@ -75,6 +76,7 @@ func (m *MockChannelsClient) Disconnect() error {
 func (m *MockChannelsClient) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.connected = false
 
 	return nil
@@ -194,6 +196,7 @@ func (m *MockChannelsClient) On(event string, handler channels.MessageHandler) {
 func (m *MockChannelsClient) UpdateURL(url string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.lastUpdatedURL = url
 }
 
@@ -201,6 +204,7 @@ func (m *MockChannelsClient) UpdateURL(url string) {
 func (m *MockChannelsClient) UpdateToken(token string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.lastUpdatedToken = token
 }
 

@@ -36,6 +36,7 @@ func createWSTestServer(t *testing.T, handler func(*websocket.Conn)) *httptest.S
 		}
 
 		defer conn.Close()
+
 		handler(conn)
 	}))
 }
@@ -58,6 +59,7 @@ func newMockWSChannelsClient() *mockWSChannelsClient {
 func (m *mockWSChannelsClient) Connect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.connected = true
 
 	return nil
@@ -66,6 +68,7 @@ func (m *mockWSChannelsClient) Connect() error {
 func (m *mockWSChannelsClient) Disconnect() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.connected = false
 
 	return nil
@@ -85,6 +88,7 @@ func (m *mockWSChannelsClient) IsConnected() bool {
 func (m *mockWSChannelsClient) Send(msg *channels.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.sentMessages = append(m.sentMessages, msg)
 
 	return nil
@@ -270,6 +274,7 @@ func TestHandleWSFrame(t *testing.T) {
 			if err != nil {
 				return
 			}
+
 			received <- data
 		}
 	})

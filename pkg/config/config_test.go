@@ -10,6 +10,7 @@ import (
 func TestLoadFromEnv(t *testing.T) {
 	// Save original env and restore after test
 	originalEnv := os.Environ()
+
 	defer func() {
 		os.Clearenv()
 
@@ -51,9 +52,11 @@ func TestLoadFromEnv(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
 				t.Helper()
+
 				if cfg.ConnectTimeout != 10*time.Second {
 					t.Errorf("expected ConnectTimeout 10s, got %v", cfg.ConnectTimeout)
 				}
+
 				if cfg.MaxRetries != 100 {
 					t.Errorf("expected MaxRetries 100, got %d", cfg.MaxRetries)
 				}
@@ -128,9 +131,11 @@ func TestLoadFromEnv(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
 				t.Helper()
+
 				if cfg.BackendScheme != "https" {
 					t.Errorf("expected BackendScheme https, got %s", cfg.BackendScheme)
 				}
+
 				if cfg.BackendURL() != "https://api.example.com:443" {
 					t.Errorf("expected backend URL https://api.example.com:443, got %s", cfg.BackendURL())
 				}
@@ -160,6 +165,7 @@ func TestLoadFromEnv(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
 				t.Helper()
+
 				if cfg.MaxResponseSize != 52428800 {
 					t.Errorf("expected MaxResponseSize 52428800, got %d", cfg.MaxResponseSize)
 				}
@@ -189,6 +195,7 @@ func TestLoadFromEnv(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
 				t.Helper()
+
 				if cfg.ChunkSize != 524288 {
 					t.Errorf("expected ChunkSize 524288, got %d", cfg.ChunkSize)
 				}
@@ -413,6 +420,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
 				t.Helper()
+
 				if cfg.BackendPort != 1 {
 					t.Errorf("Expected port 1, got %d", cfg.BackendPort)
 				}
@@ -425,6 +433,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
 				t.Helper()
+
 				if cfg.BackendPort != 65535 {
 					t.Errorf("Expected port 65535, got %d", cfg.BackendPort)
 				}
@@ -437,6 +446,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
 				t.Helper()
+
 				if cfg.MaxRetries != -1 {
 					t.Errorf("Expected MaxRetries -1, got %d", cfg.MaxRetries)
 				}
@@ -449,6 +459,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
 				t.Helper()
+
 				if cfg.MaxRetries != 0 {
 					t.Errorf("Expected MaxRetries 0, got %d", cfg.MaxRetries)
 				}
@@ -461,6 +472,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
 				t.Helper()
+
 				if cfg.MaxResponseSize != 10737418240 {
 					t.Errorf("Expected MaxResponseSize 10737418240, got %d", cfg.MaxResponseSize)
 				}
@@ -473,6 +485,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
 				t.Helper()
+
 				if cfg.ConnectTimeout != 1*time.Millisecond {
 					t.Errorf("Expected ConnectTimeout 1ms, got %v", cfg.ConnectTimeout)
 				}
@@ -485,6 +498,7 @@ func TestLoadFromEnvBoundaryValues(t *testing.T) {
 			expectError: false,
 			validate: func(t *testing.T, cfg *Config) {
 				t.Helper()
+
 				if cfg.RequestTimeout != 1*time.Hour {
 					t.Errorf("Expected RequestTimeout 1h, got %v", cfg.RequestTimeout)
 				}

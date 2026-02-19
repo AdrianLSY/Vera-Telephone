@@ -18,6 +18,7 @@ import (
 func main() {
 	envFile := flag.String("env", ".env", "Path to .env file")
 	dbPath := flag.String("db", "telephone.db", "Path to token database")
+
 	flag.Parse()
 
 	log.SetFlags(0)

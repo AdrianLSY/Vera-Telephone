@@ -1,3 +1,4 @@
+// Package websocket provides WebSocket connection management for proxy functionality.
 package websocket
 
 import (
@@ -79,10 +80,12 @@ func NewManager(handler EventHandler) *Manager {
 func (m *Manager) Connect(connectionID, url string, headers map[string]string) (string, error) {
 	// Check if connection already exists
 	m.mu.RLock()
+
 	if _, exists := m.connections[connectionID]; exists {
 		m.mu.RUnlock()
 		return "", fmt.Errorf("connection %s already exists", connectionID)
 	}
+
 	m.mu.RUnlock()
 
 	// Build HTTP headers for the WebSocket handshake
@@ -146,6 +149,7 @@ func (m *Manager) Connect(connectionID, url string, headers map[string]string) (
 
 	// Start receiver goroutine
 	m.wg.Add(1)
+
 	go m.receiveLoop(c)
 
 	logger.Info("WebSocket connection established",
@@ -168,10 +172,12 @@ func (m *Manager) SendFrame(connectionID string, opcode Opcode, data []byte) err
 	}
 
 	c.closedMu.RLock()
+
 	if c.closed {
 		c.closedMu.RUnlock()
 		return fmt.Errorf("connection %s is closed", connectionID)
 	}
+
 	c.closedMu.RUnlock()
 
 	// Map opcode to websocket message type

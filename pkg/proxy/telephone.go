@@ -1,3 +1,4 @@
+// Package proxy provides the core Telephone reverse proxy functionality.
 package proxy
 
 import (
@@ -7,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"path"
 	"regexp"
 	"strings"
 	"sync"
@@ -247,14 +250,17 @@ func (t *Telephone) Start() error {
 
 	// Start heartbeat
 	t.wg.Add(1)
+
 	go t.heartbeatLoop()
 
 	// Start token refresh
 	t.wg.Add(1)
+
 	go t.tokenRefreshLoop()
 
 	// Start connection monitor
 	t.wg.Add(1)
+
 	go t.monitorConnection()
 
 	logger.Info("Telephone started successfully")
@@ -276,6 +282,7 @@ func (t *Telephone) Stop() error {
 
 	// Wait for active requests to complete (with timeout)
 	done := make(chan struct{})
+
 	go func() {
 		t.activeRequests.Wait()
 		close(done)
@@ -333,6 +340,7 @@ func (t *Telephone) getCurrentToken() string {
 func (t *Telephone) updateToken(newToken string, newClaims *auth.JWTClaims) {
 	t.tokenMu.Lock()
 	defer t.tokenMu.Unlock()
+
 	t.currentToken = newToken
 	t.claims = newClaims
 	t.config.Token = newToken
@@ -462,6 +470,7 @@ func (t *Telephone) tokenRefreshLoop() {
 			if !t.client.IsConnected() {
 				// If not connected, check again in 5 seconds
 				logger.Info("Not connected, will retry token refresh in 5 seconds")
+
 				select {
 				case <-t.ctx.Done():
 					return
@@ -617,12 +626,12 @@ func validateProxyRequest(payload map[string]interface{}) error {
 	}
 
 	// Validate path
-	path, ok := payload["path"].(string)
+	reqPath, ok := payload["path"].(string)
 	if !ok {
 		return fmt.Errorf("missing or invalid path")
 	}
 
-	if path == "" {
+	if reqPath == "" {
 		return fmt.Errorf("path cannot be empty")
 	}
 
@@ -640,6 +649,51 @@ func validateProxyRequest(payload map[string]interface{}) error {
 	}
 
 	return nil
+}
+
+// validateBackendPath validates and sanitizes the request path for backend forwarding.
+// It prevents path traversal attacks, protocol-relative URLs, and ensures proper path format.
+func validateBackendPath(rawPath string) (string, error) {
+	// Path must start with /
+	if !strings.HasPrefix(rawPath, "/") {
+		return "", fmt.Errorf("path must start with /")
+	}
+
+	// Reject protocol-relative URLs (e.g., //evil.com/path)
+	if strings.HasPrefix(rawPath, "//") {
+		return "", fmt.Errorf("protocol-relative URLs are not allowed")
+	}
+
+	// Parse and validate the path is not an absolute URL
+	parsed, err := url.Parse(rawPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %w", err)
+	}
+
+	// Reject if it has a scheme (absolute URL)
+	if parsed.Scheme != "" {
+		return "", fmt.Errorf("absolute URLs are not allowed")
+	}
+
+	// Reject if it has a host (protocol-relative URL)
+	if parsed.Host != "" {
+		return "", fmt.Errorf("URLs with host are not allowed")
+	}
+
+	// Clean the path to resolve any .. or . components
+	cleanedPath := path.Clean(parsed.Path)
+
+	// After cleaning, path must still start with /
+	if !strings.HasPrefix(cleanedPath, "/") {
+		return "", fmt.Errorf("path traversal detected")
+	}
+
+	// Preserve query string if present in original
+	if parsed.RawQuery != "" {
+		return cleanedPath + "?" + parsed.RawQuery, nil
+	}
+
+	return cleanedPath, nil
 }
 
 // handleProxyRequest handles an incoming proxy request from Plugboard.
@@ -671,12 +725,12 @@ func (t *Telephone) handleProxyRequest(msg *channels.Message) {
 	// Type assertions are safe here - payload was validated above
 	requestID := msg.Payload["request_id"].(string) //nolint:errcheck
 	method := msg.Payload["method"].(string)        //nolint:errcheck
-	path := msg.Payload["path"].(string)            //nolint:errcheck
+	reqPath := msg.Payload["path"].(string)         //nolint:errcheck
 
 	logger.Info("Received proxy request",
 		"request_id", requestID,
 		"method", method,
-		"path", path,
+		"path", reqPath,
 	)
 
 	// Forward to backend
@@ -716,13 +770,19 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 	// Type assertions are safe - payload was validated by validateProxyRequest
 	requestID := payload["request_id"].(string) //nolint:errcheck
 	method := payload["method"].(string)        //nolint:errcheck
-	path := payload["path"].(string)            //nolint:errcheck
+	rawPath := payload["path"].(string)         //nolint:errcheck
 
-	// Build backend URL
-	backendURL := fmt.Sprintf("%s%s", t.config.BackendURL(), path)
+	// Validate and sanitize path to prevent SSRF and path traversal
+	validatedPath, err := validateBackendPath(rawPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
 
-	// Add query string if present
-	if queryString, ok := payload["query_string"].(string); ok && queryString != "" {
+	// Build backend URL with validated path
+	backendURL := fmt.Sprintf("%s%s", t.config.BackendURL(), validatedPath)
+
+	// Add query string if present (and not already in validated path)
+	if queryString, ok := payload["query_string"].(string); ok && queryString != "" && !strings.Contains(validatedPath, "?") {
 		backendURL += "?" + queryString
 	}
 
@@ -751,7 +811,8 @@ func (t *Telephone) forwardToBackend(payload map[string]interface{}) (*ProxyResp
 	}
 
 	// Execute request
-	resp, err := t.backend.Do(req)
+	// Path is validated by validateBackendPath to prevent SSRF - rejects traversal, absolute URLs, protocol-relative URLs
+	resp, err := t.backend.Do(req) //nolint:gosec // G704: Path validated by validateBackendPath
 	if err != nil {
 		return nil, fmt.Errorf("backend request failed: %w", err)
 	}

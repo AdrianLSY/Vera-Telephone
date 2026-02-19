@@ -88,6 +88,7 @@ func TestIntegrationFullFlow(t *testing.T) {
 	}
 
 	// Give it time to establish connection and join channel
+
 	time.Sleep(2 * time.Second)
 
 	// Verify connection is established
@@ -129,6 +130,7 @@ func TestIntegrationTokenPersistence(t *testing.T) {
 	}
 
 	go tel.Start()
+
 	time.Sleep(2 * time.Second)
 
 	// Get current token
@@ -216,7 +218,9 @@ func BenchmarkIntegrationProxyRequest(b *testing.B) {
 	}
 
 	tel, _ := New(cfg)
+
 	go tel.Start()
+
 	time.Sleep(2 * time.Second)
 
 	defer tel.Stop()

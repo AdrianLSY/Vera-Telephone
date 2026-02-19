@@ -1,3 +1,4 @@
+// Package channels provides Phoenix Channels WebSocket client functionality.
 package channels
 
 import (
@@ -52,11 +53,11 @@ type MessageHandler func(*Message)
 
 // NewClient creates a new Phoenix Channels client.
 // Token leakage is mitigated via GetCleanURL() for logging, short-lived tokens, and TLS in production.
-func NewClient(url, token string, connectTimeout time.Duration) *Client {
+func NewClient(serverURL, token string, connectTimeout time.Duration) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Client{
-		url:             url,
+		url:             serverURL,
 		token:           token,
 		connectTimeout:  connectTimeout,
 		handlers:        make(map[string]MessageHandler),
@@ -70,6 +71,7 @@ func NewClient(url, token string, connectTimeout time.Duration) *Client {
 func (c *Client) UpdateURL(newURL string) {
 	c.urlMu.Lock()
 	defer c.urlMu.Unlock()
+
 	c.url = newURL
 }
 
@@ -77,6 +79,7 @@ func (c *Client) UpdateURL(newURL string) {
 func (c *Client) UpdateToken(newToken string) {
 	c.tokenMu.Lock()
 	defer c.tokenMu.Unlock()
+
 	c.token = newToken
 }
 
@@ -176,6 +179,7 @@ func (c *Client) Connect() error {
 
 	// Start read loop
 	c.wg.Add(1)
+
 	go c.readLoop()
 
 	// Use clean URL for logging to avoid token leakage
@@ -280,6 +284,7 @@ func (c *Client) SendAndWait(msg *Message, timeout time.Duration) (*Message, err
 func (c *Client) On(event string, handler MessageHandler) {
 	c.handlerLock.Lock()
 	defer c.handlerLock.Unlock()
+
 	c.handlers[event] = handler
 }
 
@@ -315,6 +320,7 @@ func (c *Client) readLoop() {
 
 	go func() {
 		defer contextWg.Done()
+
 		select {
 		case <-c.readCtx.Done():
 			logger.Debug("readLoop context canceled, closing connection")
